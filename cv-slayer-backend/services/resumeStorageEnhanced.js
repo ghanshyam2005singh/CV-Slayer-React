@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Resume = require('../models/Resume');
 const { connectDB, getConnectionStatus } = require('../config/database');
 const crypto = require('crypto');
@@ -18,8 +19,14 @@ class ResumeStorageEnhanced {
 
   async ensureConnection() {
     try {
+      // Use existing connection if available
+      if (mongoose.connection.readyState === 1) {
+        console.log('✅ Using existing database connection');
+        return;
+      }
       await connectDB();
     } catch (error) {
+      console.log('❌ Database connection error:', error.message);
       throw new Error('Database connection failed');
     }
   }
@@ -299,7 +306,7 @@ class ResumeStorageEnhanced {
       fileName: this.sanitizeFileName(file.originalname),
       originalFileName: this.sanitizeFileName(file.originalname),
       fileSize: Math.max(0, parseInt(file.size) || 0),
-      mimeType: validator.escape(file.mimetype || 'application/pdf'),
+      mimeType: file.mimetype || 'application/pdf',
       extractedInfo: this.sanitizeExtractedInfo(analysisResult.extractedInfo || {}),
       analysis: this.sanitizeAnalysis(analysisResult),
       preferences: this.sanitizePreferences(preferences),
