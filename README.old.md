@@ -83,25 +83,18 @@ No hate, just roast. We're here to improve CVs *and* your sense of humor 😎.
 
 
 
-again i am telling, lets go every pages one by one, check if there any cruticial data is not leaking in network tab, console.log, fix these, make production ready, no test, improve mobile view ui, and also make correct for mongodb that all the data properly store and fetch on admin panel, donot need to make super good, just working with this points and if any other point you think need to fix. okay?? we are going again one by one every page, we donot have whole day, just say it good or not and move forward if not good then with updated code
+lets debug this and make it better, there is lots of problem i am telling you about the application and also some issue and then we will go every pages one by one and update the whole page accordingly, i said one by one page and all the page, till i said stop.
 
+about the application: this application where user came and upload their resume and select the preferences given in option, you can checkout otions frm app.js and when he click on button for roast gemini will analysis the document and store the all the information from document with knowing user, and give him feedback roast other things score based on document and preferences and the data will be store in mongodb atlas and when only admin go to admin rount and login with email pssword he can see the resume the has been store in mongodb and all the information, i said all name mail number etc etc all and admin can delete and view the resume from admin panel. thats all
 
-1. data isn not storing and fetching properly like time and details
+issue:1. data isn not storing and fetching properly like time and details
 3. better ui of navbar, that toogle button
 4. use env file instead of directly coded email and other important data
 5. fix linting, npm run build issue, remove console.log and other sesitive data leaking
-instead of localhost or development, make it for production
+instead of localhost or development, make it for production and better
 6. make it mobile responsive
 7. can see all the details and delete the resume
 8. giving window alert when click on analyse other resume
+9. etc if you think any improvement but donot change our concept
 
-Hey there! Let me take a loving look at your resume...
-
-First off, kudos for tackling a real-world problem! Your AlumConnect pitch deck is bursting with potential – it&#x27;s like a delicious entrepreneurial soufflé, light, airy, and full of promise. However, as a resume, it&#x27;s more of a culinary masterpiece that needs a little… plating. Right now, it reads like a fantastic business plan, not a personal resume. We need to showcase *you*, the brilliant mind behind this innovative platform. Think of it this way: your AlumConnect idea is the main course, but we need to add some appetizers (your skills and experience) and a delightful dessert (your personal achievements) to complete the meal.
-
-The problem statement is spot-on – the disconnect between academia and industry is a real beast! But instead of just stating the problem, subtly weave your own relevant experiences into the solution. For example, did you notice a lack of mentorship during your own studies? Did that inspire AlumConnect? Let&#x27;s hear those personal anecdotes! Also, while the features are great, they&#x27;re presented like a laundry list. Instead, highlight *your* role in developing or envisioning these features. Did *you* design the AI matching algorithm? Did *you* lead the team that built the forum functionality? Let your contributions shine!
-
-The &quot;Why Now&quot; section is a strong point – it clearly articulates the market opportunity. However, remember that this is your resume, not a market research report. Instead of just listing reasons, connect those reasons to *your* skills and ambitions. For instance, &quot;My passion for connecting students with industry leaders, coupled with the boom in India&#x27;s infrastructure sector, led me to develop AlumConnect.&quot; See? Much more personal and engaging.
-
-Finally, my friend, this isn&#x27;t a pitch deck – it&#x27;s a resume. We need to add some personal details, your contact information (where are you hiding?), and idea
-giving response like this and why always 75/100
+again i am saying remeber this, we will go every pages one by one and improve it.
