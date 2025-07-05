@@ -93,3 +93,7 @@ again i am telling, lets go every pages one by one, check if there any cruticial
 5. fix linting, npm run build issue, remove console.log and other sesitive data leaking
 instaed of localhost or development, make it for production
 6. make it mobile responsive
+
+1. see is there any issue in generating uploader resume analysis and roast according to that, giving feedbck and marks then fix
+2. see if extrated data is properly stored in mongodb and fetched on admin panel
+only this two issue check, if no problem them move forward to next page

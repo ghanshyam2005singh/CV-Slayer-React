@@ -7,6 +7,25 @@ const ResultsDisplay = ({ results, onReset }) => {
   const [isPrinting, setIsPrinting] = useState(false);
   const [error, setError] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [toasts, setToasts] = useState([]);
+
+  // Toast management system
+  const addToast = useCallback((message, type = 'info', duration = 4000) => {
+    const id = Date.now() + Math.random();
+    const newToast = { id, message, type, duration };
+    
+    setToasts(prev => [...prev, newToast]);
+    
+    // Auto-remove toast after duration
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, duration);
+  }, []);
+
+  const removeToast = useCallback((id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  }, []);
 
   // Enhanced score utilities with validation
   const getScoreColor = useCallback((score) => {
@@ -36,17 +55,19 @@ const ResultsDisplay = ({ results, onReset }) => {
     if (validTabs.includes(tabName)) {
       setActiveTab(tabName);
       setError('');
+      addToast(`Switched to ${tabName} view`, 'info', 2000);
     }
-  }, []);
+  }, [addToast]);
 
-  // PRODUCTION FIX - Enhanced print functionality with error handling
+  // Enhanced print functionality with toast feedback
   const handlePrint = useCallback(async () => {
     setIsPrinting(true);
     setError('');
+    addToast('Preparing report for download...', 'info');
 
     try {
       if (!window.print) {
-        throw new Error('Print not supported');
+        throw new Error('Print not supported in this browser');
       }
 
       const printStyles = document.createElement('style');
@@ -59,6 +80,8 @@ const ResultsDisplay = ({ results, onReset }) => {
             display: block !important; 
             page-break-inside: avoid;
           }
+          .toast-container { display: none !important; }
+          .confirmation-dialog { display: none !important; }
           body { print-color-adjust: exact; }
         }
       `;
@@ -67,6 +90,8 @@ const ResultsDisplay = ({ results, onReset }) => {
       await new Promise(resolve => setTimeout(resolve, 100));
       window.print();
 
+      addToast('Report download completed successfully!', 'success');
+
       setTimeout(() => {
         if (document.head.contains(printStyles)) {
           document.head.removeChild(printStyles);
@@ -74,17 +99,16 @@ const ResultsDisplay = ({ results, onReset }) => {
       }, 1000);
 
     } catch (error) {
-      // PRODUCTION FIX - Generic error message
-      setError('Print failed. Please try again.');
+      console.error('Print error:', error);
+      addToast('Print failed. Please try again or use your browser\'s print function.', 'error');
     } finally {
       setIsPrinting(false);
     }
-  }, []);
+  }, [addToast]);
 
-  // PRODUCTION FIX - Sanitized clipboard functionality
+  // Enhanced clipboard functionality with better feedback
   const copyToClipboard = useCallback(async (text) => {
     try {
-      // Sanitize text before copying
       const sanitizedText = typeof text === 'string' ? text.substring(0, 1000) : '';
       
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -101,21 +125,63 @@ const ResultsDisplay = ({ results, onReset }) => {
         document.body.removeChild(textArea);
       }
       
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 3000);
+      addToast('Copied to clipboard successfully!', 'success');
       
     } catch (error) {
-      // PRODUCTION FIX - Generic error message
-      setError('Copy failed. Please try again.');
+      console.error('Copy error:', error);
+      addToast('Copy failed. Please try selecting and copying manually.', 'error');
     }
+  }, [addToast]);
+
+  // Enhanced reset handler with custom confirmation dialog
+  const handleResetRequest = useCallback(() => {
+    setShowResetConfirm(true);
   }, []);
 
-  // Enhanced reset handler with confirmation
-  const handleReset = useCallback(() => {
-    if (window.confirm('Analyze another resume? This will clear current results.')) {
-      onReset();
+  const handleResetConfirm = useCallback(() => {
+    setShowResetConfirm(false);
+    addToast('Starting new resume analysis...', 'info');
+    onReset();
+  }, [onReset, addToast]);
+
+  const handleResetCancel = useCallback(() => {
+    setShowResetConfirm(false);
+    addToast('Analysis preserved', 'info', 2000);
+  }, [addToast]);
+
+  // Enhanced share functionality with better feedback
+  const handleShare = useCallback(async () => {
+    setIsSharing(true);
+    setError('');
+    addToast('Preparing share content...', 'info');
+
+    try {
+      const shareData = {
+        title: 'CV Slayer Results',
+        text: `I scored ${sanitizedScore}/100 on my resume analysis! Try CV Slayer for professional feedback.`,
+        url: window.location.origin
+      };
+
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+        addToast('Shared successfully!', 'success');
+      } else {
+        await copyToClipboard(shareData.text + ' ' + shareData.url);
+        addToast('Share content copied to clipboard!', 'success');
+      }
+
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        addToast('Share cancelled', 'info', 2000);
+        return;
+      }
+      console.error('Share error:', error);
+      addToast('Share failed. Content copied to clipboard instead.', 'warning');
+      await copyToClipboard(`I scored ${sanitizedScore}/100 on CV Slayer! ${window.location.origin}`);
+    } finally {
+      setIsSharing(false);
     }
-  }, [onReset]);
+  }, [sanitizedScore, copyToClipboard, addToast]);
 
   // Keyboard navigation support
   const handleKeyDown = useCallback((event, action) => {
@@ -123,17 +189,22 @@ const ResultsDisplay = ({ results, onReset }) => {
       event.preventDefault();
       action();
     }
-  }, []);
+    if (event.key === 'Escape') {
+      if (showResetConfirm) {
+        handleResetCancel();
+      }
+    }
+  }, [showResetConfirm, handleResetCancel]);
 
-  // PRODUCTION FIX - XSS Protection for text content
+  // XSS Protection for text content
   const sanitizeText = useCallback((text) => {
     if (typeof text !== 'string') return '';
     return text
-      .replace(/[<>]/g, '') // Remove HTML tags
-      .substring(0, 2000) // Limit length
+      .replace(/[<>]/g, '')
+      .substring(0, 2000)
       .split('\n')
       .filter(line => line.trim().length > 0)
-      .slice(0, 50); // Limit lines
+      .slice(0, 50);
   }, []);
 
   // Input validation and sanitization
@@ -152,36 +223,7 @@ const ResultsDisplay = ({ results, onReset }) => {
       fileName;
   }, [results]);
 
-  // PRODUCTION FIX - Enhanced share functionality
-  const handleShare = useCallback(async () => {
-    setIsSharing(true);
-    setError('');
-
-    try {
-      const shareData = {
-        title: 'CV Slayer Results',
-        text: `I scored ${sanitizedScore}/100 on my resume analysis! Try CV Slayer for professional feedback.`,
-        url: window.location.origin
-      };
-
-      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
-        await navigator.share(shareData);
-      } else {
-        await copyToClipboard(shareData.text + ' ' + shareData.url);
-      }
-
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        return;
-      }
-      // PRODUCTION FIX - Generic error message
-      setError('Share failed. Please try again.');
-    } finally {
-      setIsSharing(false);
-    }
-  }, [sanitizedScore, copyToClipboard]);
-
-  // PRODUCTION FIX - Validate and sanitize improvements array
+  // Validate and sanitize improvements array
   const validImprovements = useMemo(() => {
     if (!results || !Array.isArray(results.improvements)) return [];
     
@@ -204,7 +246,7 @@ const ResultsDisplay = ({ results, onReset }) => {
       .slice(0, 10);
   }, [results]);
 
-  // PRODUCTION FIX - Validate and sanitize strengths/weaknesses
+  // Validate and sanitize strengths/weaknesses
   const validStrengths = useMemo(() => {
     if (!results || !Array.isArray(results.strengths)) return [];
     return results.strengths
@@ -229,6 +271,18 @@ const ResultsDisplay = ({ results, onReset }) => {
     }
   }, [error]);
 
+  // Keyboard event listener for escape key
+  useEffect(() => {
+    const handleEscapeKey = (event) => {
+      if (event.key === 'Escape' && showResetConfirm) {
+        handleResetCancel();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscapeKey);
+    return () => document.removeEventListener('keydown', handleEscapeKey);
+  }, [showResetConfirm, handleResetCancel]);
+
   // Validate results prop
   if (!results) return null;
 
@@ -240,7 +294,65 @@ const ResultsDisplay = ({ results, onReset }) => {
 
   return (
     <div className="results-container" role="main" aria-label="Resume analysis results">
-      {/* PRODUCTION FIX - Error notification */}
+      {/* Toast Notification System */}
+      <div className="toast-container" aria-live="polite">
+        {toasts.map((toast) => (
+          <div 
+            key={toast.id}
+            className={`toast toast-${toast.type}`}
+            role="alert"
+          >
+            <div className="toast-content">
+              <span className="toast-icon">
+                {toast.type === 'success' && '✅'}
+                {toast.type === 'error' && '❌'}
+                {toast.type === 'warning' && '⚠️'}
+                {toast.type === 'info' && 'ℹ️'}
+              </span>
+              <span className="toast-message">{toast.message}</span>
+            </div>
+            <button 
+              className="toast-close"
+              onClick={() => removeToast(toast.id)}
+              aria-label="Close notification"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Custom Confirmation Dialog */}
+      {showResetConfirm && (
+        <div className="confirmation-overlay" role="dialog" aria-modal="true">
+          <div className="confirmation-dialog">
+            <div className="dialog-header">
+              <h3>🔄 Start New Analysis?</h3>
+            </div>
+            <div className="dialog-content">
+              <p>This will clear your current results and start a new resume analysis.</p>
+              <p>Are you sure you want to continue?</p>
+            </div>
+            <div className="dialog-actions">
+              <button 
+                className="dialog-button secondary"
+                onClick={handleResetCancel}
+                autoFocus
+              >
+                Cancel
+              </button>
+              <button 
+                className="dialog-button primary"
+                onClick={handleResetConfirm}
+              >
+                Yes, Start New
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Legacy error notification (keeping for backward compatibility) */}
       {error && (
         <div className="error-notification" role="alert" aria-live="polite">
           <span>⚠️ {error}</span>
@@ -254,14 +366,7 @@ const ResultsDisplay = ({ results, onReset }) => {
         </div>
       )}
 
-      {/* Success notification */}
-      {copySuccess && (
-        <div className="success-notification" role="alert" aria-live="polite">
-          <span>✅ Copied to clipboard!</span>
-        </div>
-      )}
-
-      {/* MOBILE OPTIMIZED - Score Section */}
+      {/* Score Section */}
       <div className="score-section">
         <div 
           className="score-circle" 
@@ -283,7 +388,7 @@ const ResultsDisplay = ({ results, onReset }) => {
         </div>
       </div>
 
-      {/* MOBILE OPTIMIZED - Tab Navigation */}
+      {/* Tab Navigation */}
       <div className="results-tabs" role="tablist" aria-label="Result sections">
         <button 
           className={`tab-button ${activeTab === 'roast' ? 'active' : ''}`}
@@ -311,7 +416,7 @@ const ResultsDisplay = ({ results, onReset }) => {
         </button>
       </div>
 
-      {/* PRODUCTION FIX - Sanitized Tab Content */}
+      {/* Tab Content */}
       <div className="tab-content">
         {activeTab === 'roast' && (
           <div className="roast-content" role="tabpanel">
@@ -393,11 +498,11 @@ const ResultsDisplay = ({ results, onReset }) => {
         )}
       </div>
 
-      {/* MOBILE OPTIMIZED - Action Buttons */}
+      {/* Action Buttons */}
       <div className="results-actions">
         <button 
           className="action-button secondary" 
-          onClick={handleReset}
+          onClick={handleResetRequest}
           aria-label="Analyze another resume"
         >
           🔄 Try Another
