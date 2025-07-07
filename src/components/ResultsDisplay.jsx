@@ -10,6 +10,62 @@ const ResultsDisplay = ({ results, onReset }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [toasts, setToasts] = useState([]);
 
+  // FIXED: Move sanitizedScore calculation to the top before any functions that use it
+  const sanitizedScore = useMemo(() => {
+    if (!results || !results.score) return 0;
+    const numScore = Number(results.score);
+    return isNaN(numScore) ? 0 : Math.max(0, Math.min(100, Math.round(numScore)));
+  }, [results]);
+
+  const sanitizedFileName = useMemo(() => {
+    if (!results || !results.originalFileName) return 'Unknown File';
+    const fileName = results.originalFileName;
+    if (typeof fileName !== 'string') return 'Unknown File';
+    return fileName.length > 50 ? 
+      fileName.substring(0, 47) + '...' : 
+      fileName;
+  }, [results]);
+
+  // Validate and sanitize improvements array
+  const validImprovements = useMemo(() => {
+    if (!results || !Array.isArray(results.improvements)) return [];
+    
+    return results.improvements
+      .filter(imp => imp && typeof imp === 'object')
+      .map(improvement => ({
+        priority: ['high', 'medium', 'low'].includes(improvement.priority) 
+          ? improvement.priority 
+          : 'medium',
+        title: typeof improvement.title === 'string' 
+          ? improvement.title.replace(/[<>]/g, '').substring(0, 100) 
+          : 'Improvement',
+        description: typeof improvement.description === 'string' 
+          ? improvement.description.replace(/[<>]/g, '').substring(0, 300) 
+          : '',
+        example: typeof improvement.example === 'string' 
+          ? improvement.example.replace(/[<>]/g, '').substring(0, 200) 
+          : ''
+      }))
+      .slice(0, 10);
+  }, [results]);
+
+  // Validate and sanitize strengths/weaknesses
+  const validStrengths = useMemo(() => {
+    if (!results || !Array.isArray(results.strengths)) return [];
+    return results.strengths
+      .filter(item => typeof item === 'string' && item.trim().length > 0)
+      .map(item => item.replace(/[<>]/g, '').substring(0, 150))
+      .slice(0, 8);
+  }, [results]);
+
+  const validWeaknesses = useMemo(() => {
+    if (!results || !Array.isArray(results.weaknesses)) return [];
+    return results.weaknesses
+      .filter(item => typeof item === 'string' && item.trim().length > 0)
+      .map(item => item.replace(/[<>]/g, '').substring(0, 150))
+      .slice(0, 8);
+  }, [results]);
+
   // Toast management system
   const addToast = useCallback((message, type = 'info', duration = 4000) => {
     const id = Date.now() + Math.random();
@@ -149,7 +205,7 @@ const ResultsDisplay = ({ results, onReset }) => {
     addToast('Analysis preserved', 'info', 2000);
   }, [addToast]);
 
-  // Enhanced share functionality with better feedback
+  // FIXED: Enhanced share functionality with sanitizedScore now properly available
   const handleShare = useCallback(async () => {
     setIsSharing(true);
     setError('');
@@ -181,7 +237,7 @@ const ResultsDisplay = ({ results, onReset }) => {
     } finally {
       setIsSharing(false);
     }
-  }, [sanitizedScore, copyToClipboard, addToast]);
+  }, [sanitizedScore, copyToClipboard, addToast]); // FIXED: Added sanitizedScore to dependency array
 
   // Keyboard navigation support
   const handleKeyDown = useCallback((event, action) => {
@@ -207,62 +263,6 @@ const ResultsDisplay = ({ results, onReset }) => {
       .slice(0, 50);
   }, []);
 
-  // Input validation and sanitization
-  const sanitizedScore = useMemo(() => {
-    if (!results || !results.score) return 0;
-    const numScore = Number(results.score);
-    return isNaN(numScore) ? 0 : Math.max(0, Math.min(100, Math.round(numScore)));
-  }, [results]);
-
-  const sanitizedFileName = useMemo(() => {
-    if (!results || !results.originalFileName) return 'Unknown File';
-    const fileName = results.originalFileName;
-    if (typeof fileName !== 'string') return 'Unknown File';
-    return fileName.length > 50 ? 
-      fileName.substring(0, 47) + '...' : 
-      fileName;
-  }, [results]);
-
-  // Validate and sanitize improvements array
-  const validImprovements = useMemo(() => {
-    if (!results || !Array.isArray(results.improvements)) return [];
-    
-    return results.improvements
-      .filter(imp => imp && typeof imp === 'object')
-      .map(improvement => ({
-        priority: ['high', 'medium', 'low'].includes(improvement.priority) 
-          ? improvement.priority 
-          : 'medium',
-        title: typeof improvement.title === 'string' 
-          ? improvement.title.replace(/[<>]/g, '').substring(0, 100) 
-          : 'Improvement',
-        description: typeof improvement.description === 'string' 
-          ? improvement.description.replace(/[<>]/g, '').substring(0, 300) 
-          : '',
-        example: typeof improvement.example === 'string' 
-          ? improvement.example.replace(/[<>]/g, '').substring(0, 200) 
-          : ''
-      }))
-      .slice(0, 10);
-  }, [results]);
-
-  // Validate and sanitize strengths/weaknesses
-  const validStrengths = useMemo(() => {
-    if (!results || !Array.isArray(results.strengths)) return [];
-    return results.strengths
-      .filter(item => typeof item === 'string' && item.trim().length > 0)
-      .map(item => item.replace(/[<>]/g, '').substring(0, 150))
-      .slice(0, 8);
-  }, [results]);
-
-  const validWeaknesses = useMemo(() => {
-    if (!results || !Array.isArray(results.weaknesses)) return [];
-    return results.weaknesses
-      .filter(item => typeof item === 'string' && item.trim().length > 0)
-      .map(item => item.replace(/[<>]/g, '').substring(0, 150))
-      .slice(0, 8);
-  }, [results]);
-
   // Auto-clear error messages
   useEffect(() => {
     if (error) {
@@ -283,8 +283,18 @@ const ResultsDisplay = ({ results, onReset }) => {
     return () => document.removeEventListener('keydown', handleEscapeKey);
   }, [showResetConfirm, handleResetCancel]);
 
-  // Validate results prop
-  if (!results) return null;
+  // FIXED: Early validation moved to after hooks to prevent hook order issues
+  if (!results) {
+    return (
+      <div className="results-error">
+        <h3>❌ No Results Available</h3>
+        <p>The analysis results are not available. Please try again.</p>
+        <button onClick={onReset} className="action-button primary">
+          🔄 Try Again
+        </button>
+      </div>
+    );
+  }
 
   // Destructure with safe defaults
   const {
