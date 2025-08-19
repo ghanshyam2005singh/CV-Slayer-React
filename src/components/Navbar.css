@@ -45,7 +45,7 @@
 }
 
 .logo-text {
-  background: linear-gradient(45deg, #667eea, #764ba2);
+   background:  #667eea ;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -88,7 +88,7 @@
 
 /* CTA Button Style */
 .navbar-link.cta-nav {
-  background: linear-gradient(45deg, #667eea, #764ba2);
+  background:  #667eea ;
   color: white;
   font-weight: 600;
   box-shadow: 0 3px 12px rgba(102, 126, 234, 0.3);
@@ -197,7 +197,7 @@
   }
 
   .navbar-link.cta-nav {
-    background: linear-gradient(45deg, #667eea, #764ba2);
+     background:  #667eea ;
     color: white;
     box-shadow: 0 5px 16px rgba(102, 126, 234, 0.3);
   }

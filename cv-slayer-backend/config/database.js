@@ -1,4 +1,26 @@
 const mongoose = require('mongoose');
+const winston = require('winston');
+
+// Production logger setup
+const logger = winston.createLogger({
+  level: process.env.NODE_ENV === 'production' ? 'warn' : 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'logs/combined.log' })
+  ]
+});
+
+// Only add console logging in development
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.simple()
+  }));
+}
 
 let isConnected = false;
 let connectionAttempts = 0;
@@ -7,9 +29,7 @@ const RETRY_DELAY = 5000; // 5 seconds
 
 const connectDB = async () => {
   if (isConnected && mongoose.connection.readyState === 1) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('✅ Database already connected');
-    }
+    logger.info('Database already connected');
     return;
   }
 
@@ -20,12 +40,12 @@ const connectDB = async () => {
       throw new Error('MONGODB_URI not found in environment variables');
     }
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('🔗 Connecting to MongoDB Atlas...');
-      console.log('📍 URI:', mongoUri.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')); // Hide credentials in logs
-    }
+    logger.info('Connecting to MongoDB Atlas...', {
+      // Hide credentials in logs - only show sanitized URI
+      uri: mongoUri.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')
+    });
     
-    // Production-optimized connection options (fixed for current Mongoose version)
+    // Production-optimized connection options
     const options = {
       serverSelectionTimeoutMS: process.env.NODE_ENV === 'production' ? 30000 : 15000,
       socketTimeoutMS: 45000,
@@ -43,7 +63,6 @@ const connectDB = async () => {
       },
       readPreference: 'primary',
       heartbeatFrequencyMS: 10000
-      // Removed serverSelectionRetryDelayMS as it's not supported in current Mongoose versions
     };
 
     const conn = await mongoose.connect(mongoUri, options);
@@ -51,16 +70,18 @@ const connectDB = async () => {
     isConnected = true;
     connectionAttempts = 0;
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-      console.log(`📊 Database: ${conn.connection.name}`);
-    }
+    logger.info('MongoDB Connected successfully', {
+      host: conn.connection.host,
+      database: conn.connection.name,
+      environment: process.env.NODE_ENV
+    });
 
-    // Enhanced connection event handlers
+    // Enhanced connection event handlers with secure logging
     mongoose.connection.on('error', (err) => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('❌ Database error:', err.message);
-      }
+      logger.error('Database error occurred', { 
+        error: err.message,
+        stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined
+      });
       isConnected = false;
       
       // Attempt reconnection in production
@@ -74,59 +95,62 @@ const connectDB = async () => {
     });
 
     mongoose.connection.on('disconnected', () => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('⚠️ Database disconnected');
-      }
+      logger.warn('Database disconnected');
       isConnected = false;
     });
 
     mongoose.connection.on('reconnected', () => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('✅ Database reconnected');
-      }
+      logger.info('Database reconnected successfully');
       isConnected = true;
       connectionAttempts = 0;
     });
 
     mongoose.connection.on('close', () => {
       isConnected = false;
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('📪 Database connection closed');
-      }
+      logger.info('Database connection closed');
     });
 
-    // Production monitoring
-    if (process.env.NODE_ENV === 'production') {
-      mongoose.connection.on('connected', () => {
-        console.log('✅ MongoDB Atlas connection established');
+    // Production monitoring events
+    mongoose.connection.on('connected', () => {
+      logger.info('MongoDB Atlas connection established', {
+        timestamp: new Date().toISOString()
       });
-    }
+    });
 
   } catch (error) {
     isConnected = false;
     connectionAttempts++;
     
-    // Enhanced error logging for development
+    // Enhanced secure error logging
+    logger.error('Database connection failed', {
+      error: error.message,
+      attempt: connectionAttempts,
+      maxAttempts: MAX_RETRY_ATTEMPTS,
+      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+    });
+    
+    // Provide helpful error messages in development only
     if (process.env.NODE_ENV !== 'production') {
-      console.error('❌ Database connection failed:', error.message);
-      
-      // More specific error messages for development
       if (error.message.includes('authentication failed')) {
-        console.error('🔐 Check your MongoDB Atlas username and password');
+        logger.error('Authentication failed - Check MongoDB Atlas credentials');
       } else if (error.message.includes('network') || error.message.includes('ENOTFOUND')) {
-        console.error('🌐 Check your internet connection and MongoDB Atlas network access');
+        logger.error('Network error - Check internet connection and MongoDB Atlas access');
       } else if (error.message.includes('timeout')) {
-        console.error('⏱️ Connection timeout - check MongoDB Atlas cluster status');
+        logger.error('Connection timeout - Check MongoDB Atlas cluster status');
       } else if (error.message.includes('bad auth')) {
-        console.error('🔑 Authentication failed - verify your MongoDB credentials');
+        logger.error('Authentication failed - Verify MongoDB credentials');
       } else if (error.message.includes('ip whitelist')) {
-        console.error('🛡️ IP not whitelisted - add your IP to MongoDB Atlas network access');
+        logger.error('IP not whitelisted - Add IP to MongoDB Atlas network access');
       }
     }
     
     // Retry logic for production
     if (process.env.NODE_ENV === 'production' && connectionAttempts < MAX_RETRY_ATTEMPTS) {
-      console.log(`🔄 Retrying database connection (${connectionAttempts}/${MAX_RETRY_ATTEMPTS})...`);
+      logger.info('Retrying database connection', {
+        attempt: connectionAttempts,
+        maxAttempts: MAX_RETRY_ATTEMPTS,
+        retryDelay: RETRY_DELAY * connectionAttempts
+      });
       setTimeout(() => connectDB(), RETRY_DELAY * connectionAttempts);
       return;
     }
@@ -138,24 +162,30 @@ const connectDB = async () => {
 // Enhanced reconnection with exponential backoff
 const reconnectWithRetry = async () => {
   if (connectionAttempts >= MAX_RETRY_ATTEMPTS) {
-    console.error('❌ Max reconnection attempts reached');
+    logger.error('Max reconnection attempts reached', {
+      attempts: connectionAttempts,
+      maxAttempts: MAX_RETRY_ATTEMPTS
+    });
     return;
   }
 
   connectionAttempts++;
   const delay = RETRY_DELAY * Math.pow(2, connectionAttempts - 1); // Exponential backoff
   
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`🔄 Attempting to reconnect to database (${connectionAttempts}/${MAX_RETRY_ATTEMPTS})...`);
-  }
+  logger.info('Attempting database reconnection', {
+    attempt: connectionAttempts,
+    maxAttempts: MAX_RETRY_ATTEMPTS,
+    delay: delay
+  });
 
   setTimeout(async () => {
     try {
       await connectDB();
     } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('❌ Reconnection failed:', error.message);
-      }
+      logger.error('Reconnection failed', {
+        error: error.message,
+        attempt: connectionAttempts
+      });
     }
   }, delay);
 };
@@ -177,7 +207,8 @@ const getConnectionStatus = () => {
     name: mongoose.connection.name || 'unknown',
     attempts: connectionAttempts,
     maxAttempts: MAX_RETRY_ATTEMPTS,
-    lastConnectionTime: mongoose.connection.readyState === 1 ? new Date().toISOString() : null
+    lastConnectionTime: mongoose.connection.readyState === 1 ? new Date().toISOString() : null,
+    environment: process.env.NODE_ENV || 'unknown'
   };
 };
 
@@ -186,24 +217,23 @@ const closeConnection = async () => {
     if (mongoose.connection.readyState !== 0) {
       await mongoose.connection.close();
       isConnected = false;
-      
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('✅ Database connection closed');
-      }
+      logger.info('Database connection closed successfully');
     }
   } catch (error) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('❌ Error closing database connection:', error.message);
-    }
+    logger.error('Error closing database connection', { error: error.message });
     throw new Error('Failed to close database connection');
   }
 };
 
-// Health check function
+// Health check function for monitoring
 const healthCheck = async () => {
   try {
     if (!isConnected || mongoose.connection.readyState !== 1) {
-      return { healthy: false, message: 'Database not connected' };
+      return { 
+        healthy: false, 
+        message: 'Database not connected',
+        timestamp: new Date().toISOString()
+      };
     }
 
     // Ping the database
@@ -213,28 +243,55 @@ const healthCheck = async () => {
       healthy: true, 
       message: 'Database connection healthy',
       uptime: process.uptime(),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      connectionInfo: {
+        host: mongoose.connection.host,
+        name: mongoose.connection.name,
+        readyState: mongoose.connection.readyState
+      }
     };
   } catch (error) {
+    logger.error('Database health check failed', { error: error.message });
     return { 
       healthy: false, 
       message: 'Database ping failed',
-      error: error.message 
+      error: process.env.NODE_ENV === 'production' ? 'Health check failed' : error.message,
+      timestamp: new Date().toISOString()
     };
   }
 };
 
-// Graceful shutdown
+// Graceful shutdown for production
 const gracefulShutdown = async () => {
   try {
     if (mongoose.connection.readyState === 1) {
       await mongoose.connection.close();
       isConnected = false;
-      console.log('✅ Database connection closed gracefully');
+      logger.info('Database connection closed gracefully during shutdown');
     }
   } catch (error) {
-    console.error('❌ Error during graceful database shutdown:', error.message);
+    logger.error('Error during graceful database shutdown', { error: error.message });
   }
+};
+
+// Database performance monitoring
+const getPerformanceMetrics = () => {
+  if (mongoose.connection.readyState !== 1) {
+    return { available: false, message: 'Database not connected' };
+  }
+
+  return {
+    available: true,
+    connectionPool: {
+      maxPoolSize: mongoose.connection.options?.maxPoolSize || 'unknown',
+      minPoolSize: mongoose.connection.options?.minPoolSize || 'unknown'
+    },
+    readyState: mongoose.connection.readyState,
+    host: mongoose.connection.host,
+    database: mongoose.connection.name,
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  };
 };
 
 module.exports = {
@@ -243,5 +300,6 @@ module.exports = {
   closeConnection,
   healthCheck,
   gracefulShutdown,
-  reconnectWithRetry
+  reconnectWithRetry,
+  getPerformanceMetrics
 };
