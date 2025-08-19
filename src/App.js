@@ -4,6 +4,47 @@ import Navbar from './components/Navbar';
 import ResultsDisplay from './components/ResultsDisplay';
 import AdminPanel from './components/AdminPanel';
 
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    // Only log in development
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error caught by boundary:', error, errorInfo);
+    }
+    this.setState({ error: error });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="error-boundary">
+          <div className="error-content">
+            <div className="error-icon">⚠️</div>
+            <h2>Something went wrong</h2>
+            <p>We apologize for the inconvenience. Please refresh the page and try again.</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="error-reload-btn"
+            >
+              🔄 Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [results, setResults] = useState(null);
@@ -19,33 +60,40 @@ function App() {
     language: 'english'
   });
 
-  // Enhanced file validation with better error messages
-  const validateFile = useCallback((file) => {
-    if (!file) return 'Please select a file';
-    
-    const allowedTypes = [
-      'application/pdf', 
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
+  // Production API Configuration
+  const API_CONFIG = useMemo(() => ({
+    baseURL: process.env.NODE_ENV === 'production' 
+      ? window.location.origin 
+      : process.env.REACT_APP_API_URL || 'http://localhost:5000',
+    timeout: 180000, // 3 minutes for production
+    maxFileSize: 10 * 1024 * 1024, // 10MB
+    allowedTypes: [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/msword'
-    ];
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    ]
+  }), []);
+
+  // Enhanced file validation
+  const validateFile = useCallback((file) => {
+    if (!file) return 'Please select a resume file';
     
-    if (!allowedTypes.includes(file.type)) {
+    if (!API_CONFIG.allowedTypes.includes(file.type)) {
       return 'Please upload only PDF or Word documents (.pdf, .doc, .docx)';
     }
     
-    if (file.size > maxSize) {
-      return 'File size must be less than 5MB. Please compress your file and try again.';
+    if (file.size > API_CONFIG.maxFileSize) {
+      return `File size must be less than ${API_CONFIG.maxFileSize / (1024 * 1024)}MB`;
     }
     
     if (file.size === 0) {
-      return 'The selected file appears to be empty. Please select a valid resume file.';
+      return 'Selected file appears to be empty';
     }
     
     return null;
-  }, []);
+  }, [API_CONFIG]);
 
-  // Enhanced file change handler with cleanup
+  // Secure file change handler
   const handleFileChange = useCallback((e) => {
     const file = e.target.files[0];
     setError('');
@@ -55,7 +103,6 @@ function App() {
       if (validationError) {
         setError(validationError);
         setSelectedFile(null);
-        // Clear the file input
         e.target.value = '';
         return;
       }
@@ -65,11 +112,10 @@ function App() {
     }
   }, [validateFile]);
 
-  // Enhanced input change handler with validation
+  // Secure input validation
   const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
     
-    // Validate input values
     const validValues = {
       gender: ['male', 'female', 'other'],
       roastLevel: ['pyar', 'ache', 'dhang'],
@@ -77,16 +123,13 @@ function App() {
       language: ['english', 'hindi', 'hinglish']
     };
     
-    if (validValues[name] && validValues[name].includes(value)) {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
-      setError(''); // Clear any existing errors
+    if (validValues[name]?.includes(value)) {
+      setFormData(prev => ({ ...prev, [name]: value }));
+      setError('');
     }
   }, []);
 
-  // Enhanced reset handler with complete cleanup
+  // Complete state reset
   const handleReset = useCallback(() => {
     setResults(null);
     setSelectedFile(null);
@@ -100,29 +143,24 @@ function App() {
       language: 'english'
     });
     
-    // Clear file input if it exists
     const fileInput = document.getElementById('resumeFile');
-    if (fileInput) {
-      fileInput.value = '';
-    }
+    if (fileInput) fileInput.value = '';
   }, []);
 
-  // Enhanced submit function with proper error handling and API configuration
+  // Production-ready submit handler
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     
-    // Validation checks
     if (!agreedToTerms) {
-      setError('Please accept our Terms & Conditions and Privacy Policy to continue');
+      setError('Please accept the Terms & Conditions to continue');
       return;
     }
     
     if (!selectedFile) {
-      setError('Please select a resume file to analyze');
+      setError('Please select a resume file');
       return;
     }
     
-    // Additional file validation before submission
     const validationError = validateFile(selectedFile);
     if (validationError) {
       setError(validationError);
@@ -133,8 +171,10 @@ function App() {
     setError('');
     setLoadingStep('uploading');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.timeout);
+
     try {
-      // Prepare form data with validated inputs
       const formDataToSend = new FormData();
       formDataToSend.append('resume', selectedFile);
       formDataToSend.append('gender', formData.gender);
@@ -146,161 +186,161 @@ function App() {
 
       setLoadingStep('analyzing');
 
-      // Production-ready API URL configuration
-      const getApiUrl = () => {
-        if (process.env.NODE_ENV === 'production') {
-          // For production deployment
-          return `${window.location.origin}/api/resume/analyze`;
-        } else {
-          // For development
-          return process.env.REACT_APP_API_URL 
-            ? `${process.env.REACT_APP_API_URL}/resume/analyze`
-            : 'http://localhost:5000/api/resume/analyze';
-        }
-      };
-
-      const apiUrl = getApiUrl();
-
-      // Make API request with proper error handling
+      const apiUrl = `${API_CONFIG.baseURL}/api/resume/analyze`;
+      
       const response = await fetch(apiUrl, {
         method: 'POST',
         body: formDataToSend,
+        signal: controller.signal,
         headers: {
-          'Accept': 'application/json',
-        },
-        // Add timeout for production
-        signal: AbortSignal.timeout ? AbortSignal.timeout(60000) : undefined
+          'Accept': 'application/json'
+        }
       });
 
+      clearTimeout(timeoutId);
       setLoadingStep('processing');
 
-      // Enhanced response handling
       if (!response.ok) {
         let errorMessage = 'Analysis failed. Please try again.';
         
         try {
           const errorData = await response.json();
-          errorMessage = errorData.error?.message || errorMessage;
-        } catch (parseError) {
-          // If response is not JSON, use status-based error
-          switch (response.status) {
-            case 400:
-              errorMessage = 'Invalid file or request. Please check your file and try again.';
-              break;
-            case 413:
-              errorMessage = 'File too large. Please use a file smaller than 5MB.';
-              break;
-            case 429:
-              errorMessage = 'Too many requests. Please wait a few minutes and try again.';
-              break;
-            case 500:
-              errorMessage = 'Server error. Please try again later.';
-              break;
-            case 503:
-              errorMessage = 'Service temporarily unavailable. Please try again later.';
-              break;
-            default:
-              errorMessage = `Server error (${response.status}). Please try again.`;
-          }
+          errorMessage = errorData.error?.message || errorData.message || errorMessage;
+        } catch {
+          const statusMessages = {
+            400: 'Invalid file or request',
+            413: 'File too large',
+            429: 'Too many requests. Please wait and try again',
+            500: 'Server error. Please try again later',
+            503: 'Service temporarily unavailable'
+          };
+          errorMessage = statusMessages[response.status] || `Error ${response.status}`;
         }
         
         throw new Error(errorMessage);
       }
 
-      const result = await response.json();
-
-      // Validate response structure
-      if (!result.success || !result.data) {
-        throw new Error(result.error?.message || 'Invalid response from server. Please try again.');
-      }
-
-      // Validate required fields in response
-      const requiredFields = ['roastFeedback', 'score'];
-      const missingFields = requiredFields.filter(field => !result.data[field]);
+      const responseText = await response.text();
+      let result;
       
-      if (missingFields.length > 0) {
-        throw new Error('Incomplete analysis received. Please try again.');
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        throw new Error('Invalid server response');
       }
+
+      // Handle both nested and flat response structures
+      let processedData;
+      if (result.data) {
+        processedData = result.data;
+      } else if (result.success !== false) {
+        processedData = {
+          score: result.score,
+          roastFeedback: result.roastFeedback,
+          improvements: result.improvements || [],
+          strengths: result.strengths || [],
+          weaknesses: result.weaknesses || []
+        };
+      } else {
+        throw new Error(result.error?.message || 'Analysis failed');
+      }
+
+      if (!processedData.roastFeedback && !processedData.score) {
+        throw new Error('Incomplete analysis received');
+      }
+
+      const finalResults = {
+        ...processedData,
+        originalFileName: selectedFile.name,
+        score: Number(processedData.score) || 0,
+        roastFeedback: processedData.roastFeedback || '',
+        improvements: Array.isArray(processedData.improvements) ? processedData.improvements : [],
+        strengths: Array.isArray(processedData.strengths) ? processedData.strengths : [],
+        weaknesses: Array.isArray(processedData.weaknesses) ? processedData.weaknesses : []
+      };
 
       setLoadingStep('complete');
       
-      // Delay result display for better UX
       setTimeout(() => {
-        setResults(result.data);
+        setResults(finalResults);
         setIsLoading(false);
         setLoadingStep('');
-      }, 800);
+      }, 1000);
 
     } catch (error) {
-      // Enhanced error handling
-      let userFriendlyMessage;
+      clearTimeout(timeoutId);
       
+      let userMessage;
       if (error.name === 'AbortError') {
-        userFriendlyMessage = 'Request timed out. Please try again with a smaller file.';
-      } else if (error.message.includes('fetch')) {
-        userFriendlyMessage = 'Cannot connect to server. Please check your internet connection and try again.';
-      } else if (error.message.includes('NetworkError')) {
-        userFriendlyMessage = 'Network error. Please check your connection and try again.';
+        userMessage = 'Request timed out. Please try with a smaller file';
+      } else if (error.message.includes('fetch') || error.message.includes('Network')) {
+        userMessage = 'Connection failed. Please check your internet and try again';
       } else {
-        userFriendlyMessage = error.message || 'An unexpected error occurred. Please try again.';
+        userMessage = error.message || 'An error occurred. Please try again';
       }
       
-      setError(userFriendlyMessage);
+      setError(userMessage);
       setIsLoading(false);
       setLoadingStep('');
     }
-  }, [selectedFile, formData, agreedToTerms, validateFile]);
+  }, [selectedFile, formData, agreedToTerms, validateFile, API_CONFIG]);
 
-  // Auto-clear errors after 10 seconds
+  // Auto-clear errors
   useEffect(() => {
     if (error) {
-      const timer = setTimeout(() => setError(''), 10000);
+      const timer = setTimeout(() => setError(''), 8000);
       return () => clearTimeout(timer);
     }
   }, [error]);
 
-  // Enhanced admin route check with proper routing
+  // Admin route check
   const isAdminRoute = useMemo(() => {
-    return window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/');
+    return window.location.pathname.startsWith('/admin');
   }, []);
   
   if (isAdminRoute) {
-    return <AdminPanel />;
-  }
-
-  // Show results if available
-  if (results) {
     return (
-      <div className="app">
-        <Navbar />
-        <div style={{ padding: '80px 20px 40px' }}>
-          <ResultsDisplay results={results} onReset={handleReset} />
-        </div>
-      </div>
+      <ErrorBoundary>
+        <AdminPanel />
+      </ErrorBoundary>
     );
   }
 
-  // Enhanced loading component with proper step progression
+  // Results view
+  if (results) {
+    return (
+      <ErrorBoundary>
+        <div className="app">
+          <Navbar />
+          <main className="main-content">
+            <ResultsDisplay results={results} onReset={handleReset} />
+          </main>
+        </div>
+      </ErrorBoundary>
+    );
+  }
+
+  // Loading view
   if (isLoading) {
     const getLoadingMessage = () => {
       const messages = {
         hindi: {
-          uploading: '📤 आपका resume upload हो रहा है...',
-          analyzing: '🔍 AI आपका resume पढ़ रहा है...',
-          processing: '🤖 Feedback तैयार हो रहा है...',
-          complete: '✅ Roast तैयार है!'
+          uploading: 'आपका resume upload हो रहा है...',
+          analyzing: 'AI आपका resume analyze कर रहा है...',
+          processing: 'Feedback तैयार हो रहा है...',
+          complete: 'Analysis पूरा हो गया!'
         },
         hinglish: {
-          uploading: '📤 Tumhara resume upload ho raha hai...',
-          analyzing: '🔍 AI tumhara resume dekh raha hai...',
-          processing: '🤖 Roast ready ho raha hai...',
-          complete: '✅ Ho gaya bhai!'
+          uploading: 'Resume upload ho raha hai...',
+          analyzing: 'AI analysis kar raha hai...',
+          processing: 'Feedback ready kar rahe hain...',
+          complete: 'Bas ho gaya!'
         },
         english: {
-          uploading: '📤 Uploading your resume...',
-          analyzing: '🔍 AI is analyzing your content...',
-          processing: '🤖 Generating feedback...',
-          complete: '✅ Analysis complete!'
+          uploading: 'Uploading your resume...',
+          analyzing: 'AI is analyzing your resume...',
+          processing: 'Generating personalized feedback...',
+          complete: 'Analysis complete!'
         }
       };
       
@@ -308,516 +348,503 @@ function App() {
     };
 
     const getProgressPercentage = () => {
-      const percentages = {
-        uploading: 25,
-        analyzing: 50,
-        processing: 75,
-        complete: 100
-      };
+      const percentages = { uploading: 25, analyzing: 50, processing: 75, complete: 100 };
       return percentages[loadingStep] || 0;
     };
 
     return (
-      <div className="app">
-        <Navbar />
-        <div className="loading-container">
-          <div className="loading-animation">
-            <div className="roast-loading">
-              <div className="fire-animation">🔥</div>
-              <div className="ai-avatar">🤖</div>
-              <div className="resume-icon">📄</div>
-            </div>
-            
-            <div className="loading-progress">
-              <div className="progress-bar">
-                <div 
-                  className="progress-fill" 
-                  style={{ width: `${getProgressPercentage()}%` }}
-                ></div>
-              </div>
-              <div className="loading-steps">
-                <div className={`step ${['uploading', 'analyzing', 'processing', 'complete'].includes(loadingStep) ? 'active' : ''}`}>
-                  <span className="step-icon">📤</span>
-                  <span className="step-text">Uploading</span>
-                </div>
-                <div className={`step ${['analyzing', 'processing', 'complete'].includes(loadingStep) ? 'active' : ''}`}>
-                  <span className="step-icon">🔍</span>
-                  <span className="step-text">Analyzing</span>
-                </div>
-                <div className={`step ${['processing', 'complete'].includes(loadingStep) ? 'active' : ''}`}>
-                  <span className="step-icon">🤖</span>
-                  <span className="step-text">Processing</span>
-                </div>
-                <div className={`step ${loadingStep === 'complete' ? 'active' : ''}`}>
-                  <span className="step-icon">💬</span>
-                  <span className="step-text">Complete</span>
-                </div>
-              </div>
-              <div className="loading-percentage">
-                {getProgressPercentage()}%
-              </div>
-            </div>
-          </div>
+      
+      <ErrorBoundary>
+        <div className="app">
+          <Navbar />
           
-          <div className="loading-content">
-            <h2 className="loading-title">
-              {getLoadingMessage()}
-            </h2>
-            
-            <div className="loading-messages">
-              {formData.roastLevel === 'dhang' && (
-                <div className="roast-preview savage">
-                  {formData.language === 'hindi' && (
-                    <p>"तैयार हो जाओ, कड़वी सच्चाई सुनने के लिए! 😤"</p>
-                  )}
-                  {formData.language === 'hinglish' && (
-                    <p>"Ready ho jao, brutal feedback aa raha hai! 😈"</p>
-                  )}
-                  {formData.language === 'english' && (
-                    <p>"Brace yourself for some brutal honesty! 😤"</p>
-                  )}
+          <main className="loading-container">
+            <div className="loading-wrapper">
+              <div className="loading-animation">
+                <div className="roast-icons">
+                  <div className="icon fire">🔥</div>
+                  <div className="icon ai">🤖</div>
+                  <div className="icon resume">📄</div>
                 </div>
-              )}
+                
+                <div className="progress-section">
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill" 
+                      style={{ width: `${getProgressPercentage()}%` }}
+                    />
+                  </div>
+                  
+                  <div className="loading-steps">
+                    {['uploading', 'analyzing', 'processing', 'complete'].map((step, index) => (
+                      <div 
+                        key={step}
+                        className={`step ${loadingStep === step || index < ['uploading', 'analyzing', 'processing', 'complete'].indexOf(loadingStep) ? 'active' : ''}`}
+                      >
+                        <div className="step-icon">
+                          {step === 'uploading' && '📤'}
+                          {step === 'analyzing' && '🔍'}
+                          {step === 'processing' && '🤖'}
+                          {step === 'complete' && '✅'}
+                        </div>
+                        <span className="step-label">
+                          {step.charAt(0).toUpperCase() + step.slice(1)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="progress-percentage">
+                    {getProgressPercentage()}%
+                  </div>
+                </div>
+              </div>
               
-              {formData.roastLevel === 'ache' && (
-                <div className="roast-preview balanced">
-                  {formData.language === 'hindi' && (
-                    <p>"संतुलित feedback मिलेगा - अच्छा और बुरा दोनों! 🤔"</p>
+              <div className="loading-content">
+                <h2 className="loading-title">{getLoadingMessage()}</h2>
+                
+                <div className="roast-preview">
+                  {formData.roastLevel === 'dhang' && (
+                    <div className="preview-card savage">
+                      <div className="preview-icon">😈</div>
+                      <p>
+                        {formData.language === 'hindi' && "तैयार हो जाओ कड़वी सच्चाई के लिए!"}
+                        {formData.language === 'hinglish' && "Brutal honesty incoming, brace yourself!"}
+                        {formData.language === 'english' && "Preparing some brutal honesty..."}
+                      </p>
+                    </div>
                   )}
-                  {formData.language === 'hinglish' && (
-                    <p>"Balanced feedback milega - achha aur bura dono! 🤔"</p>
+                  
+                  {formData.roastLevel === 'ache' && (
+                    <div className="preview-card balanced">
+                      <div className="preview-icon">🤔</div>
+                      <p>
+                        {formData.language === 'hindi' && "संतुलित feedback तैयार कर रहे हैं"}
+                        {formData.language === 'hinglish' && "Balanced feedback aa raha hai"}
+                        {formData.language === 'english' && "Preparing balanced feedback..."}
+                      </p>
+                    </div>
                   )}
-                  {formData.language === 'english' && (
-                    <p>"Preparing balanced feedback with pros and cons! 🤔"</p>
+                  
+                  {formData.roastLevel === 'pyar' && (
+                    <div className="preview-card gentle">
+                      <div className="preview-icon">😊</div>
+                      <p>
+                        {formData.language === 'hindi' && "प्यार से feedback दे रहे हैं"}
+                        {formData.language === 'hinglish' && "Gentle feedback ban raha hai"}
+                        {formData.language === 'english' && "Preparing gentle feedback..."}
+                      </p>
+                    </div>
                   )}
                 </div>
-              )}
-              
-              {formData.roastLevel === 'pyar' && (
-                <div className="roast-preview gentle">
-                  {formData.language === 'hindi' && (
-                    <p>"प्यार से feedback दे रहे हैं, चिंता मत करो! 😊"</p>
-                  )}
-                  {formData.language === 'hinglish' && (
-                    <p>"Pyaar se feedback de rahe hain, tension nahi! 😊"</p>
-                  )}
-                  {formData.language === 'english' && (
-                    <p>"Preparing gentle, constructive feedback! 😊"</p>
-                  )}
-                </div>
-              )}
+              </div>
             </div>
-          </div>
+          </main>
         </div>
-      </div>
+      </ErrorBoundary>
     );
   }
 
+  // Main application
   return (
-    <div className="app">
-      <Navbar />
-      
-      {/* Hero Section */}
-      <section id="home" className="hero">
-        <div className="container">
-          <div className="hero-content">
-            <h1 className="hero-title">
-              CV Slayer
-            </h1>
-            <p className="hero-subtitle">
-              Brutally Honest Resume Roaster with AI-Powered Feedback
-            </p>
-            <p className="hero-description">
-              Get personalized feedback on your resume with humor, honesty, and actionable improvement suggestions.
-            </p>
-            <a href="#upload" className="cta-button">
-              Start Roasting 🔥
-            </a>
+    <ErrorBoundary>
+      <div className="app">
+        <Navbar />
+        
+        {/* Hero Section */}
+        <section className="hero">
+          <div className="hero-background">
+            <div className="hero-pattern"></div>
           </div>
-          <div className="hero-visual">
-            <div className="floating-resume">📄</div>
-            <div className="floating-fire">🔥</div>
-            <div className="floating-ai">🤖</div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="features">
-        <div className="container">
-          <h2>Why Choose CV Slayer?</h2>
-          <div className="features-grid">
-            <div className="feature-card">
-              <div className="feature-icon">🤖</div>
-              <h3>AI-Powered Analysis</h3>
-              <p>Advanced AI analyzes your resume content and structure</p>
-            </div>
-            <div className="feature-card">
-              <div className="feature-icon">🎭</div>
-              <h3>Multiple Styles</h3>
-              <p>Choose from funny, serious, or sarcastic feedback</p>
-            </div>
-            <div className="feature-card">
-              <div className="feature-icon">🌍</div>
-              <h3>Multi-Language</h3>
-              <p>Get feedback in English, Hindi, or Hinglish</p>
-            </div>
-            <div className="feature-card">
-              <div className="feature-icon">💡</div>
-              <h3>Actionable Tips</h3>
-              <p>Receive specific suggestions to improve your resume</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Upload Section */}
-      <section id="upload" className="upload-section">
-        <div className="container">
-          <h2>Upload Your Resume</h2>
-          
-          {error && (
-            <div className="error-message" role="alert" aria-live="polite">
-              <span>⚠️ {error}</span>
-              <button 
-                className="error-close"
-                onClick={() => setError('')}
-                aria-label="Close error message"
-                type="button"
-              >
-                ×
-              </button>
-            </div>
-          )}
-          
-          <form onSubmit={handleSubmit} className="upload-form" noValidate>
-            <div className="form-group">
-              <label htmlFor="resumeFile" className="file-label">
-                <div className="file-icon">📁</div>
-                <span className="file-text">
-                  {selectedFile ? selectedFile.name : "Choose Resume (PDF/DOCX)"}
-                </span>
-              </label>
-              <input 
-                type="file" 
-                id="resumeFile" 
-                accept=".pdf,.docx,.doc"
-                onChange={handleFileChange}
-                required
-                disabled={isLoading}
-                aria-describedby="file-hint"
-              />
-              <small id="file-hint" className="file-hint">
-                Max file size: 5MB. Supported formats: PDF, DOC, DOCX
-              </small>
-            </div>
-
-            <div className="form-grid">
-              <div className="form-group">
-                <label htmlFor="gender">Gender</label>
-                <select 
-                  id="gender"
-                  name="gender" 
-                  value={formData.gender} 
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  required
-                >
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="other">Other/Neutral</option>
-                </select>
+          <div className="container">
+            <div className="hero-content">
+              <div className="hero-text">
+                <h1 className="hero-title">
+                  <span className="title-main">CV Slayer</span>
+                  <span className="title-sub">Resume Roaster</span>
+                </h1>
+                <p className="hero-subtitle">
+                  Get brutally honest AI-powered feedback on your resume with humor, insights, and actionable improvements
+                </p>
+                <div className="hero-features">
+                  <div className="feature-tag">🤖 AI-Powered</div>
+                  <div className="feature-tag">🎭 Multiple Styles</div>
+                  <div className="feature-tag">🌍 Multi-Language</div>
+                </div>
+                <a href="#upload" className="cta-button">
+                  <span>Start Roasting</span>
+                  <div className="cta-icon">🔥</div>
+                </a>
               </div>
-
-              <div className="form-group">
-                <label htmlFor="roastLevel">Roast Level</label>
-                <select 
-                  id="roastLevel"
-                  name="roastLevel" 
-                  value={formData.roastLevel} 
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  required
-                >
-                  <option value="pyar">Gentle</option>
-                  <option value="ache">Balanced</option>
-                  <option value="dhang">Savage</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="roastType">Style</label>
-                <select 
-                  id="roastType"
-                  name="roastType" 
-                  value={formData.roastType} 
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  required
-                >
-                  <option value="funny">Funny</option>
-                  <option value="serious">Serious</option>
-                  <option value="sarcastic">Sarcastic</option>
-                  <option value="motivational">Motivational</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="language">Language</label>
-                <select 
-                  id="language"
-                  name="language" 
-                  value={formData.language} 
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  required
-                >
-                  <option value="english">English</option>
-                  <option value="hindi">Hindi</option>
-                  <option value="hinglish">Hinglish</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Terms & Conditions Section */}
-            <div className="terms-section">
-              <div className="terms-checkbox">
-                <input 
-                  type="checkbox" 
-                  id="agreeTerms" 
-                  checked={agreedToTerms}
-                  onChange={(e) => setAgreedToTerms(e.target.checked)}
-                  disabled={isLoading}
-                  required
-                  aria-describedby="terms-description"
-                />
-                <label htmlFor="agreeTerms" className="terms-label">
-                  <span id="terms-description">
-                    I acknowledge and agree to the processing of my resume data as outlined in our
-                  </span>
-                  <br />
-                  <button 
-                    type="button" 
-                    className="terms-link"
-                    onClick={() => setShowTermsModal(true)}
-                    disabled={isLoading}
-                    aria-label="Open Terms of Service and Privacy Policy"
-                  >
-                    Terms of Service & Privacy Policy
-                  </button>
-                </label>
-              </div>
-            </div>
-
-            <button 
-              type="submit" 
-              className="submit-button" 
-              disabled={!selectedFile || !agreedToTerms || isLoading}
-              aria-describedby="submit-status"
-            >
-              {isLoading ? 'Analyzing...' : 'Roast My Resume!'}
-            </button>
-            <div id="submit-status" className="sr-only">
-              {isLoading ? 'Analysis in progress' : 'Ready to submit'}
-            </div>
-          </form>
-        </div>
-      </section>
-
-      {/* Terms Modal */}
-      {showTermsModal && (
-        <div 
-          className="modal-overlay" 
-          onClick={() => setShowTermsModal(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-title"
-        >
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 id="modal-title">Terms of Service & Privacy Policy</h2>
-              <button 
-                className="modal-close"
-                onClick={() => setShowTermsModal(false)}
-                aria-label="Close modal"
-                type="button"
-              >
-                ×
-              </button>
-            </div>
-            
-            <div className="modal-body">
-              <div className="terms-content">
-                <section className="terms-section-modal">
-                  <h3>🔐 Data Processing & Privacy Notice</h3>
-                  <p>
-                    Welcome to CV Slayer. By using our services, you agree to our data processing practices 
-                    for resume analysis and feedback generation.
-                  </p>
-                </section>
-
-                <section className="terms-section-modal">
-                  <h3>📄 Document Processing</h3>
-                  <p>
-                    Your resume is temporarily processed for analysis. Files are automatically deleted 
-                    after processing. Analysis results may be retained for service improvement.
-                  </p>
-                </section>
-
-                <section className="terms-section-modal">
-                  <h3>🤖 AI Processing</h3>
-                  <p>
-                    We use AI to analyze your resume content and provide feedback. Your data helps 
-                    improve our services through anonymized learning.
-                  </p>
-                </section>
-
-                <section className="terms-section-modal">
-                  <h3>📞 Contact</h3>
-                  <p>
-                    For questions about data processing, contact: outlercodie.com@gmail.com
-                  </p>
-                </section>
-
-                <div className="terms-footer">
-                  <p><strong>Last Updated:</strong> December 2024</p>
-                  <p><strong>Service Provider:</strong> Iron Industry</p>
+              <div className="hero-visual">
+                <div className="floating-elements">
+                  <div className="floating-item resume">📄</div>
+                  <div className="floating-item fire">🔥</div>
+                  <div className="floating-item ai">🤖</div>
+                  <div className="floating-item chart">📊</div>
                 </div>
               </div>
             </div>
-            
-            <div className="modal-footer">
-              <button 
-                className="btn-secondary"
-                onClick={() => setShowTermsModal(false)}
-                type="button"
-              >
-                Close
-              </button>
-              <button 
-                className="btn-primary"
-                onClick={() => {
-                  setAgreedToTerms(true);
-                  setShowTermsModal(false);
-                }}
-                type="button"
-              >
-                Accept Terms
-              </button>
+          </div>
+        </section>
+
+        {/* Features Section */}
+        <section className="features">
+          <div className="container">
+            <div className="section-header">
+              <h2>Why Choose CV Slayer?</h2>
+              <p>Professional resume analysis with personality</p>
+            </div>
+            <div className="features-grid">
+              <div className="feature-card">
+                <div className="feature-icon">🤖</div>
+                <h3>AI-Powered Analysis</h3>
+                <p>Advanced machine learning analyzes content, structure, and ATS compatibility</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">🎭</div>
+                <h3>Multiple Personalities</h3>
+                <p>Choose from gentle guidance to brutal honesty - whatever motivates you</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">🌍</div>
+                <h3>Multi-Language Support</h3>
+                <p>Get feedback in English, Hindi, or Hinglish for better understanding</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">💡</div>
+                <h3>Actionable Insights</h3>
+                <p>Specific, implementable suggestions to improve your resume immediately</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">📊</div>
+                <h3>ATS Optimization</h3>
+                <p>Ensure your resume passes Applicant Tracking Systems</p>
+              </div>
+              <div className="feature-card">
+                <div className="feature-icon">🔒</div>
+                <h3>Privacy First</h3>
+                <p>Your data is processed securely and never shared</p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        </section>
 
-      {/* How It Works Section */}
-      <section id="how-it-works" className="how-it-works">
-        <div className="container">
-          <h2>How It Works</h2>
-          <div className="steps-container">
-            <div className="step">
-              <div className="step-number">1</div>
-              <div className="step-content">
+        {/* Upload Section */}
+        <section id="upload" className="upload-section">
+          <div className="container">
+            <div className="upload-wrapper">
+              <div className="section-header">
+                <h2>Upload Your Resume</h2>
+                <p>Get instant AI-powered feedback and roasting</p>
+              </div>
+              
+              {error && (
+                <div className="error-alert" role="alert">
+                  <div className="error-content">
+                    <span className="error-icon">⚠️</span>
+                    <span className="error-text">{error}</span>
+                    <button 
+                      className="error-close"
+                      onClick={() => setError('')}
+                      aria-label="Close error"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              <form onSubmit={handleSubmit} className="upload-form">
+                <div className="file-upload-section">
+                  <label htmlFor="resumeFile" className="file-upload-label">
+                    <div className="file-upload-area">
+                      <div className="file-icon">📄</div>
+                      <div className="file-text">
+                        <span className="file-primary">
+                          {selectedFile ? selectedFile.name : "Choose your resume"}
+                        </span>
+                        <span className="file-secondary">
+                          PDF, DOC, DOCX up to 10MB
+                        </span>
+                      </div>
+                      <div className="file-button">Browse</div>
+                    </div>
+                  </label>
+                  <input 
+                    type="file" 
+                    id="resumeFile" 
+                    accept=".pdf,.docx,.doc"
+                    onChange={handleFileChange}
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
+
+                <div className="form-options">
+                  <div className="option-group">
+                    <label>Gender</label>
+                    <div className="select-wrapper">
+                      <select 
+                        name="gender" 
+                        value={formData.gender} 
+                        onChange={handleInputChange}
+                        disabled={isLoading}
+                      >
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other/Neutral</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="option-group">
+                    <label>Roast Level</label>
+                    <div className="select-wrapper">
+                      <select 
+                        name="roastLevel" 
+                        value={formData.roastLevel} 
+                        onChange={handleInputChange}
+                        disabled={isLoading}
+                      >
+                        <option value="pyar">😊 Gentle (Supportive)</option>
+                        <option value="ache">🤔 Balanced (Honest)</option>
+                        <option value="dhang">😈 Savage (Brutal)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="option-group">
+                    <label>Style</label>
+                    <div className="select-wrapper">
+                      <select 
+                        name="roastType" 
+                        value={formData.roastType} 
+                        onChange={handleInputChange}
+                        disabled={isLoading}
+                      >
+                        <option value="funny">😄 Funny</option>
+                        <option value="serious">🎯 Professional</option>
+                        <option value="sarcastic">😏 Sarcastic</option>
+                        <option value="motivational">💪 Motivational</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="option-group">
+                    <label>Language</label>
+                    <div className="select-wrapper">
+                      <select 
+                        name="language" 
+                        value={formData.language} 
+                        onChange={handleInputChange}
+                        disabled={isLoading}
+                      >
+                        <option value="english">🇺🇸 English</option>
+                        <option value="hindi">🇮🇳 Hindi</option>
+                        <option value="hinglish">🌍 Hinglish</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="terms-section">
+                  <label className="terms-checkbox">
+                    <input 
+                      type="checkbox" 
+                      checked={agreedToTerms}
+                      onChange={(e) => setAgreedToTerms(e.target.checked)}
+                      disabled={isLoading}
+                      required
+                    />
+                    <span className="checkmark"></span>
+                    <span className="terms-text">
+                      I agree to the{' '}
+                      <button 
+                        type="button" 
+                        className="terms-link"
+                        onClick={() => setShowTermsModal(true)}
+                      >
+                        Terms of Service & Privacy Policy
+                      </button>
+                    </span>
+                  </label>
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="submit-button"
+                  disabled={!selectedFile || !agreedToTerms || isLoading}
+                >
+                  <span>{isLoading ? 'Analyzing...' : 'Roast My Resume!'}</span>
+                  <div className="submit-icon">🚀</div>
+                </button>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        {/* Terms Modal */}
+        {showTermsModal && (
+          <div className="modal-overlay" onClick={() => setShowTermsModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Terms of Service & Privacy Policy</h3>
+                <button 
+                  className="modal-close"
+                  onClick={() => setShowTermsModal(false)}
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div className="modal-body">
+                <div className="terms-content">
+                  <section>
+                    <h4>🔐 Privacy & Data Processing</h4>
+                    <p>Your resume is processed temporarily for analysis. Files are automatically deleted after processing. We use industry-standard security measures to protect your data.</p>
+                  </section>
+
+                  <section>
+                    <h4>🤖 AI Analysis</h4>
+                    <p>We use advanced AI to analyze your resume content and provide feedback. Your data helps improve our service through anonymized machine learning.</p>
+                  </section>
+
+                  <section>
+                    <h4>📞 Contact</h4>
+                    <p>For questions about our services: outlercodie.com@gmail.com</p>
+                  </section>
+                </div>
+              </div>
+              
+              <div className="modal-footer">
+                <button 
+                  className="btn-secondary"
+                  onClick={() => setShowTermsModal(false)}
+                >
+                  Close
+                </button>
+                <button 
+                  className="btn-primary"
+                  onClick={() => {
+                    setAgreedToTerms(true);
+                    setShowTermsModal(false);
+                  }}
+                >
+                  Accept Terms
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* How It Works */}
+        <section className="how-it-works">
+          <div className="container">
+            <div className="section-header">
+              <h2>How It Works</h2>
+              <p>Simple process, powerful results</p>
+            </div>
+            <div className="steps-grid">
+              <div className="step-card">
+                <div className="step-number">1</div>
+                <div className="step-icon">📤</div>
                 <h3>Upload</h3>
-                <p>Upload your resume file securely</p>
+                <p>Upload your resume securely</p>
               </div>
-            </div>
-            <div className="step">
-              <div className="step-number">2</div>
-              <div className="step-content">
+              <div className="step-card">
+                <div className="step-number">2</div>
+                <div className="step-icon">⚙️</div>
                 <h3>Customize</h3>
-                <p>Choose your preferences</p>
+                <p>Choose your roasting preferences</p>
               </div>
-            </div>
-            <div className="step">
-              <div className="step-number">3</div>
-              <div className="step-content">
+              <div className="step-card">
+                <div className="step-number">3</div>
+                <div className="step-icon">🤖</div>
                 <h3>Analyze</h3>
-                <p>AI processes your resume</p>
+                <p>AI processes and analyzes</p>
               </div>
-            </div>
-            <div className="step">
-              <div className="step-number">4</div>
-              <div className="step-content">
+              <div className="step-card">
+                <div className="step-number">4</div>
+                <div className="step-icon">📊</div>
                 <h3>Results</h3>
                 <p>Get detailed feedback</p>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Sample Roasts */}
-      <section id="examples" className="sample-roasts">
-        <div className="container">
-          <h2>Sample Feedback</h2>
-          <div className="roast-examples">
-            <div className="roast-card">
-              <h4>Funny Style</h4>
-              <blockquote>
-                "Bhai, 'Microsoft Office expert' likhne se tu Excel ka Picasso nahi ban jata. 
-                Try adding some actual achievements! 🤷‍♂️"
-              </blockquote>
-              <div className="suggestion">
-                <strong>Suggestion:</strong> Quantify your skills with specific examples.
-              </div>
+        {/* Sample Results */}
+        <section className="sample-results">
+          <div className="container">
+            <div className="section-header">
+              <h2>Sample Roasts</h2>
+              <p>See what different styles look like</p>
             </div>
-            
-            <div className="roast-card">
-              <h4>Serious Style</h4>
-              <blockquote>
-                "Your resume lacks quantifiable achievements. Instead of 'handled customer service,' 
-                specify 'Managed 50+ customer inquiries daily with 95% satisfaction rate.'"
-              </blockquote>
-              <div className="suggestion">
-                <strong>Suggestion:</strong> Use numbers and metrics to demonstrate impact.
+            <div className="samples-grid">
+              <div className="sample-card funny">
+                <div className="sample-header">
+                  <span className="sample-type">😄 Funny Style</span>
+                  <span className="sample-level">Gentle</span>
+                </div>
+                <blockquote>
+                  "Your resume says 'Excel expert' but I bet you still Google how to make pie charts! 😅 Let's add some actual numbers to back up those claims."
+                </blockquote>
+                <div className="sample-footer">
+                  <strong>Focus:</strong> Humor with constructive feedback
+                </div>
+              </div>
+              
+              <div className="sample-card savage">
+                <div className="sample-header">
+                  <span className="sample-type">😈 Savage Style</span>
+                  <span className="sample-level">Brutal</span>
+                </div>
+                <blockquote>
+                  "Bhai, tumhara resume dekh ke lagta hai ChatGPT ne 5 minute mein banaya hai. Itna generic content dekh ke recruiter ko neend aa jayegi!"
+                </blockquote>
+                <div className="sample-footer">
+                  <strong>Focus:</strong> Brutal honesty with real talk
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Footer */}
-      <footer id="contact" className="footer">
-        <div className="container">
-          <div className="footer-content">
-            <div className="footer-section">
-              <h3>CV Slayer</h3>
-              <p>Making resumes better, one roast at a time.</p>
-              <div className="privacy-links">
-                <button 
-                  className="footer-link"
-                  onClick={() => setShowTermsModal(true)}
-                  type="button"
-                >
-                  Privacy Policy
-                </button>
-                <span>|</span>
-                <button 
-                  className="footer-link"
-                  onClick={() => setShowTermsModal(true)}
-                  type="button"
-                >
-                  Terms of Service
-                </button>
+        {/* Footer */}
+        <footer className="footer">
+          <div className="container">
+            <div className="footer-content">
+              <div className="footer-section">
+                <h3>CV Slayer</h3>
+                <p>Making resumes better, one roast at a time.</p>
+                <div className="footer-links">
+                  <button onClick={() => setShowTermsModal(true)}>
+                    Privacy Policy
+                  </button>
+                  <button onClick={() => setShowTermsModal(true)}>
+                    Terms of Service
+                  </button>
+                </div>
+              </div>
+              <div className="footer-section">
+                <h4>Contact</h4>
+                <p>outlercodie.com@gmail.com</p>
+                <p>iron-industry.tech</p>
+              </div>
+              <div className="footer-section">
+                <h4>Iron Industry</h4>
+                <p>Building innovative solutions</p>
+                <p>🔒 Your data is secure</p>
               </div>
             </div>
-            <div className="footer-section">
-              <h4>Contact</h4>
-              <p>Email: outlercodie.com@gmail.com</p>
-              <p>Website: iron-industry.tech</p>
-            </div>
-            <div className="footer-section">
-              <h4>Iron Industry</h4>
-              <p>A startup building innovative solutions</p>
-              <p>🔒 Your data is secure with us</p>
+            <div className="footer-bottom">
+              <p>&copy; 2024 Iron Industry. All rights reserved.</p>
             </div>
           </div>
-          <div className="footer-bottom">
-            <p>&copy; 2024 Iron Industry. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
-    </div>
+        </footer>
+      </div>
+    </ErrorBoundary>
   );
 }
 
