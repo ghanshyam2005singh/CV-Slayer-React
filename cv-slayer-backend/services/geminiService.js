@@ -1,6 +1,28 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const crypto = require('crypto');
 const validator = require('validator');
+const winston = require('winston');
+
+// Production logger setup
+const logger = winston.createLogger({
+  level: process.env.NODE_ENV === 'production' ? 'warn' : 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'logs/gemini-service.log' }),
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' })
+  ]
+});
+
+// Only add console logging in development
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.simple()
+  }));
+}
 
 class GeminiService {
   constructor() {
@@ -48,30 +70,98 @@ class GeminiService {
     this.requestCount = 0;
     this.lastRequestTime = 0;
     this.minRequestInterval = 1000;
+    this.dailyRequestLimit = parseInt(process.env.GEMINI_DAILY_LIMIT) || 1000;
+    this.hourlyRequestLimit = parseInt(process.env.GEMINI_HOURLY_LIMIT) || 100;
     
-    // Initialize cleanup
+    // Performance tracking
+    this.successCount = 0;
+    this.errorCount = 0;
+    this.totalProcessingTime = 0;
+    this.averageProcessingTime = 0;
+    
+    // Security tracking
+    this.suspiciousRequests = 0;
+    this.blockedRequests = 0;
+    
+    // Initialize cleanup and monitoring
     this.initializeCleanup();
+    this.startHealthMonitoring();
+    
+    logger.info('GeminiService initialized successfully', {
+      model: 'gemini-1.5-flash',
+      maxRetries: this.maxRetries,
+      requestTimeout: this.requestTimeout,
+      dailyLimit: this.dailyRequestLimit,
+      hourlyLimit: this.hourlyRequestLimit
+    });
   }
 
   validateEnvironment() {
     if (!process.env.GEMINI_API_KEY) {
+      logger.error('GEMINI_API_KEY environment variable is required');
       throw new Error('GEMINI_API_KEY environment variable is required');
     }
     
     if (process.env.GEMINI_API_KEY.length < 30) {
+      logger.error('Invalid GEMINI_API_KEY format - key too short');
       throw new Error('Invalid GEMINI_API_KEY format');
     }
+    
+    // Validate API key format (basic check)
+    if (!process.env.GEMINI_API_KEY.startsWith('AIza')) {
+      logger.warn('GEMINI_API_KEY format may be invalid - expected to start with AIza');
+    }
+    
+    logger.info('Environment validation completed successfully');
   }
 
   // Initialize cleanup routines
   initializeCleanup() {
-    // Reset request count every hour
+    // Reset hourly counters
     setInterval(() => {
       this.requestCount = 0;
+      logger.info('Hourly request count reset', {
+        successCount: this.successCount,
+        errorCount: this.errorCount,
+        averageProcessingTime: this.averageProcessingTime
+      });
     }, 60 * 60 * 1000);
+    
+    // Reset daily counters
+    setInterval(() => {
+      this.successCount = 0;
+      this.errorCount = 0;
+      this.totalProcessingTime = 0;
+      this.averageProcessingTime = 0;
+      this.suspiciousRequests = 0;
+      this.blockedRequests = 0;
+      logger.info('Daily counters reset');
+    }, 24 * 60 * 60 * 1000);
   }
 
-  // Enhanced prompt with comprehensive data extraction
+  startHealthMonitoring() {
+    // Health check every 5 minutes
+    setInterval(() => {
+      const errorRate = this.errorCount / Math.max(1, this.successCount + this.errorCount) * 100;
+      
+      if (errorRate > 20) {
+        logger.warn('High error rate detected', {
+          errorRate: errorRate.toFixed(2),
+          successCount: this.successCount,
+          errorCount: this.errorCount
+        });
+      }
+      
+      if (this.suspiciousRequests > 10) {
+        logger.warn('High suspicious request count', {
+          suspiciousRequests: this.suspiciousRequests,
+          blockedRequests: this.blockedRequests
+        });
+      }
+    }, 5 * 60 * 1000);
+  }
+
+  // Enhanced prompt with comprehensive data extraction and cultural roasting
   generatePrompt(resumeText, preferences) {
     const sanitizedPreferences = this.sanitizePreferences(preferences);
     const truncatedText = this.truncateResumeText(resumeText);
@@ -82,19 +172,22 @@ class GeminiService {
           tone: 'gentle, encouraging, and supportive', 
           style: 'like a caring mentor who wants to help you succeed', 
           intensity: 'mild constructive criticism wrapped in positivity and encouragement',
-          greeting: 'Hey there! Let me take a loving look at your resume...'
+          greeting: 'Hey there! Let me take a loving look at your resume...',
+          cultural: 'supportive and nurturing approach'
         },
         hindi: { 
           tone: 'प्यार से, सहायक, और प्रेरणादायक', 
           style: 'एक देखभाल करने वाले गुरु की तरह जो आपकी सफलता चाहता है', 
           intensity: 'हल्की सलाह के साथ बहुत सारी प्रशंसा और प्रेरणा',
-          greeting: 'अरे वाह! आपका resume देखते हैं प्यार से...'
+          greeting: 'अरे वाह! आपका resume देखते हैं प्यार से...',
+          cultural: 'भारतीय पारिवारिक प्रेम के साथ'
         },
         hinglish: { 
           tone: 'pyaar se, helpful, aur motivating', 
           style: 'ek caring elder sibling ki tarah jo genuinely help karna chahta hai', 
           intensity: 'thoda sa honest feedback but mostly encouragement aur positivity',
-          greeting: 'Arre yaar! Chaliye dekhtein hain aapka resume pyaar se...'
+          greeting: 'Arre yaar! Chaliye dekhtein hain aapka resume pyaar se...',
+          cultural: 'desi bhai-behen ka pyaar with motivation'
         }
       },
       ache: {
@@ -102,19 +195,22 @@ class GeminiService {
           tone: 'balanced, honest, and constructively critical', 
           style: 'like a professional career counselor who gives fair assessments', 
           intensity: 'balanced mix of genuine praise and honest areas for improvement',
-          greeting: 'Let me give you a honest, professional assessment of your resume...'
+          greeting: 'Let me give you an honest, professional assessment of your resume...',
+          cultural: 'professional but approachable tone'
         },
         hindi: { 
           tone: 'संतुलित, ईमानदार, और रचनात्मक आलोचना', 
           style: 'एक अनुभवी करियर सलाहकार की तरह जो सच्चाई बताता है', 
           intensity: 'प्रशंसा और सुधार के क्षेत्रों का अच्छा संतुलन',
-          greeting: 'आइए आपके resume का ईमानदार और संतुलित विश्लेषण करते हैं...'
+          greeting: 'आइए आपके resume का ईमानदार और संतुलित विश्लेषण करते हैं...',
+          cultural: 'व्यावसायिक लेकिन सम्मानजनक तरीके से'
         },
         hinglish: { 
           tone: 'balanced, seedha-saadha, aur constructive', 
           style: 'ek experienced career advisor ki tarah jo sach bolne mein believe karta hai', 
           intensity: 'achhi bhi baat bolenge, improvement areas bhi clearly batayenge',
-          greeting: 'Chaliye aapke resume ka seedha-saadha analysis karte hain...'
+          greeting: 'Chaliye aapke resume ka seedha-saadha analysis karte hain...',
+          cultural: 'professional but desi approach with straight talk'
         }
       },
       dhang: {
@@ -122,26 +218,31 @@ class GeminiService {
           tone: 'brutally honest, savage, and unfiltered', 
           style: 'like a no-nonsense hiring manager who has seen thousands of resumes', 
           intensity: 'harsh but constructive roasting with sharp wit and brutal honesty',
-          greeting: 'Alright, let me absolutely destroy your resume... I mean, analyze it thoroughly.'
+          greeting: 'Alright, let me absolutely roast your resume... I mean, analyze it thoroughly.',
+          cultural: 'direct and uncompromising feedback style'
         },
         hindi: { 
           tone: 'बेरहमी से ईमानदार, कठोर, और बिना फिल्टर', 
           style: 'एक सख्त HR मैनेजर की तरह जिसने हजारों resume देखे हैं', 
-          intensity: 'कड़ी लेकिन उपयोगी आलोचना तेज़ बुद्धि और सच्चाई के साथ',
-          greeting: 'ठीक है, अब आपके resume को सही मायने में परखते हैं...'
+          intensity: 'कड़ी लेकिन उपयोगी आलोचना तेज़ बुद्धि और सच्चाई के साथ, thoda sa gaali-galoch bhi allowed hai authenticity ke liye',
+          greeting: 'ठीक है भाई/बहन, अब सच्चाई बताते हैं आपके resume के बारे में...',
+          cultural: 'typical desi uncle/aunty style brutal honesty with occasional mild expletives for emphasis'
         },
         hinglish: { 
           tone: 'bilkul seedha, savage, aur unfiltered', 
           style: 'ek typical desi HR uncle/aunty ki tarah jo sach bol dete hain bina kisi hesitation ke', 
-          intensity: 'proper roasting with desi tadka, sharp comments aur brutal honesty',
-          greeting: 'Arre bhai/behen, ab batata hun ki aapke resume mein kya ghotala hai...'
+          intensity: 'proper roasting with desi tadka, sharp comments aur brutal honesty, mild gaali bhi chalegi for authentic desi experience',
+          greeting: 'Arre bhai/behen, ab batata hun ki aapke resume mein kya ghotala hai...',
+          cultural: 'full desi roasting style with cultural references, mild expletives for authenticity, and no-holds-barred feedback'
         }
       }
     };
 
     const config = roastConfigs[sanitizedPreferences.roastLevel][sanitizedPreferences.language];
 
-    const prompt = `You are an expert resume reviewer and comprehensive data extraction specialist. Your task is to provide detailed feedback AND extract ALL information from this resume.
+    const culturalContext = this.generateCulturalContext(sanitizedPreferences);
+
+    const prompt = `You are an expert resume reviewer and comprehensive data extraction specialist with deep understanding of ${culturalContext}. Your task is to provide detailed feedback AND extract ALL information from this resume.
 
 RESUME CONTENT:
 ${truncatedText}
@@ -152,6 +253,7 @@ ANALYSIS CONFIGURATION:
 - Intensity: ${config.intensity}
 - Language: ${sanitizedPreferences.language}
 - Roast Type: ${sanitizedPreferences.roastType}
+- Cultural Context: ${config.cultural}
 
 COMPREHENSIVE REQUIREMENTS:
 
@@ -161,6 +263,8 @@ COMPREHENSIVE REQUIREMENTS:
 - Be ${config.tone} throughout
 - Include specific examples from the resume
 - Make it ${sanitizedPreferences.roastType} and engaging
+- Use ${sanitizedPreferences.language} appropriately
+- ${sanitizedPreferences.roastLevel === 'dhang' && sanitizedPreferences.language !== 'english' ? 'Feel free to use mild authentic expressions (like "yaar", "arre", "kya bakwas") for cultural authenticity, but keep it constructive' : 'Maintain professional language'}
 
 2. DATA EXTRACTION:
 - Extract EVERY piece of information found in the resume
@@ -326,9 +430,30 @@ CRITICAL INSTRUCTIONS:
 4. Maintain the ${sanitizedPreferences.roastType} tone throughout feedback
 5. Provide actionable, specific improvements
 6. Score fairly based on actual resume quality
-7. Return ONLY valid JSON - no markdown formatting`;
+7. Return ONLY valid JSON - no markdown formatting
+8. ${sanitizedPreferences.roastLevel === 'dhang' ? 'Feel free to be brutally honest and use authentic cultural expressions for genuine feedback' : 'Maintain appropriate professional tone'}`;
 
     return prompt;
+  }
+
+  generateCulturalContext(preferences) {
+    const contexts = {
+      english: 'international professional standards and global hiring practices',
+      hindi: 'भारतीय कॉर्पोरेट संस्कृति और देसी नौकरी बाजार की समझ',
+      hinglish: 'Indian corporate culture mixed with modern global practices, understanding desi job market dynamics'
+    };
+
+    let cultural = contexts[preferences.language] || contexts.english;
+
+    if (preferences.roastLevel === 'dhang') {
+      cultural += preferences.language === 'english' 
+        ? ' with direct, no-nonsense feedback approach'
+        : preferences.language === 'hindi'
+        ? ' के साथ सीधी-सादी और बेबाक सच्चाई'
+        : ' with typical desi uncle/aunty brutally honest style';
+    }
+
+    return cultural;
   }
   
   sanitizePreferences(preferences) {
@@ -337,16 +462,24 @@ CRITICAL INSTRUCTIONS:
     const validRoastTypes = ['funny', 'serious', 'sarcastic', 'motivational'];
     const validLanguages = ['english', 'hindi', 'hinglish'];
 
-    return {
+    const sanitized = {
       gender: validGenders.includes(preferences.gender) ? preferences.gender : 'other',
       roastLevel: validRoastLevels.includes(preferences.roastLevel) ? preferences.roastLevel : 'ache',
       roastType: validRoastTypes.includes(preferences.roastType) ? preferences.roastType : 'serious',
       language: validLanguages.includes(preferences.language) ? preferences.language : 'english'
     };
+
+    logger.info('Preferences sanitized', {
+      original: preferences,
+      sanitized: sanitized,
+      hasChanges: JSON.stringify(preferences) !== JSON.stringify(sanitized)
+    });
+
+    return sanitized;
   }
 
   truncateResumeText(text) {
-    const maxLength = 6000;
+    const maxLength = 8000; // Increased for better analysis
     if (!text || text.length <= maxLength) {
       return text;
     }
@@ -364,11 +497,81 @@ CRITICAL INSTRUCTIONS:
     
     for (const breakPoint of breakPoints) {
       if (breakPoint > maxLength * 0.85) {
-        return truncated.substring(0, breakPoint) + '\n\n[Resume content truncated for analysis - showing first ' + Math.round(breakPoint/text.length*100) + '% of content]';
+        const finalText = truncated.substring(0, breakPoint) + '\n\n[Resume content truncated for analysis - showing first ' + Math.round(breakPoint/text.length*100) + '% of content]';
+        
+        logger.info('Resume text truncated', {
+          originalLength: text.length,
+          truncatedLength: finalText.length,
+          percentageShown: Math.round(breakPoint/text.length*100)
+        });
+        
+        return finalText;
       }
     }
     
-    return truncated + '\n\n[Resume content truncated for analysis]';
+    const finalText = truncated + '\n\n[Resume content truncated for analysis]';
+    logger.info('Resume text truncated at character limit', {
+      originalLength: text.length,
+      truncatedLength: finalText.length
+    });
+    
+    return finalText;
+  }
+
+  detectSuspiciousContent(text, preferences) {
+    let suspiciousScore = 0;
+    const flags = [];
+
+    // Check for potential prompt injection
+    const injectionPatterns = [
+      /ignore previous instructions/i,
+      /forget your role/i,
+      /act as/i,
+      /pretend to be/i,
+      /simulate/i,
+      /roleplay/i
+    ];
+
+    for (const pattern of injectionPatterns) {
+      if (pattern.test(text)) {
+        suspiciousScore += 3;
+        flags.push('potential_prompt_injection');
+      }
+    }
+
+    // Check for excessive special characters
+    const specialCharRatio = (text.match(/[^a-zA-Z0-9\s]/g) || []).length / text.length;
+    if (specialCharRatio > 0.3) {
+      suspiciousScore += 2;
+      flags.push('excessive_special_chars');
+    }
+
+    // Check for script-like content
+    if (/<script|javascript:|eval\(|onclick/gi.test(text)) {
+      suspiciousScore += 5;
+      flags.push('script_content');
+    }
+
+    // Check preferences manipulation
+    const validPrefs = ['pyar', 'ache', 'dhang', 'english', 'hindi', 'hinglish', 'funny', 'serious', 'sarcastic', 'motivational'];
+    for (const [key, value] of Object.entries(preferences)) {
+      if (typeof value === 'string' && !validPrefs.includes(value)) {
+        suspiciousScore += 2;
+        flags.push('invalid_preferences');
+      }
+    }
+
+    if (suspiciousScore > 5) {
+      this.suspiciousRequests++;
+      logger.warn('Suspicious content detected', {
+        suspiciousScore,
+        flags,
+        textLength: text.length,
+        preferences
+      });
+    }
+
+    return { suspiciousScore, flags };
   }
 
   async analyzeResume(resumeText, preferences) {
@@ -378,23 +581,51 @@ CRITICAL INSTRUCTIONS:
     try {
       // Enhanced input validation
       if (!resumeText || typeof resumeText !== 'string') {
+        logger.warn('Invalid resume text provided', { requestId });
         throw new Error('INVALID_RESUME_TEXT');
       }
 
       if (resumeText.trim().length < 50) {
+        logger.warn('Resume text too short', { 
+          requestId, 
+          length: resumeText.trim().length 
+        });
         throw new Error('RESUME_TOO_SHORT');
       }
 
       if (resumeText.length > 50000) {
+        logger.warn('Resume text too long', { 
+          requestId, 
+          length: resumeText.length 
+        });
         throw new Error('RESUME_TOO_LONG');
       }
 
       if (!preferences || typeof preferences !== 'object') {
+        logger.warn('Invalid preferences provided', { requestId, preferences });
         throw new Error('INVALID_PREFERENCES');
+      }
+
+      // Security check for suspicious content
+      const securityCheck = this.detectSuspiciousContent(resumeText, preferences);
+      if (securityCheck.suspiciousScore > 8) {
+        this.blockedRequests++;
+        logger.warn('Request blocked due to suspicious content', {
+          requestId,
+          suspiciousScore: securityCheck.suspiciousScore,
+          flags: securityCheck.flags
+        });
+        throw new Error('SUSPICIOUS_CONTENT_DETECTED');
       }
 
       // Rate limiting check
       await this.checkRateLimit();
+
+      logger.info('Starting resume analysis', {
+        requestId,
+        textLength: resumeText.length,
+        preferences: this.sanitizePreferences(preferences)
+      });
 
       const prompt = this.generatePrompt(resumeText, preferences);
       const response = await this.makeRequestWithRetry(prompt, requestId);
@@ -402,6 +633,18 @@ CRITICAL INSTRUCTIONS:
 
       // Enhanced response validation
       this.validateComprehensiveResponse(response);
+
+      // Update success metrics
+      this.successCount++;
+      this.totalProcessingTime += processingTime;
+      this.averageProcessingTime = this.totalProcessingTime / this.successCount;
+
+      logger.info('Resume analysis completed successfully', {
+        requestId,
+        processingTime,
+        score: response.score,
+        textLength: resumeText.length
+      });
 
       return {
         success: true,
@@ -411,14 +654,24 @@ CRITICAL INSTRUCTIONS:
             requestId,
             processingTime,
             modelUsed: 'gemini-1.5-flash',
-            analysisVersion: '2.0',
-            timestamp: new Date().toISOString()
+            analysisVersion: '3.0',
+            timestamp: new Date().toISOString(),
+            securityScore: securityCheck.suspiciousScore
           }
         }
       };
 
     } catch (error) {
       const processingTime = Date.now() - startTime;
+      this.errorCount++;
+      
+      logger.error('Resume analysis failed', {
+        requestId,
+        error: error.message,
+        processingTime,
+        textLength: resumeText?.length || 0,
+        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      });
       
       return {
         success: false,
@@ -435,27 +688,45 @@ CRITICAL INSTRUCTIONS:
     }
   }
 
-  // Rate limiting to prevent abuse
+  // Enhanced rate limiting with multiple tiers
   async checkRateLimit() {
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
     
+    // Check hourly limit
+    if (this.requestCount >= this.hourlyRequestLimit) {
+      logger.warn('Hourly rate limit exceeded', {
+        requestCount: this.requestCount,
+        hourlyLimit: this.hourlyRequestLimit
+      });
+      throw new Error('HOURLY_RATE_LIMIT_EXCEEDED');
+    }
+    
+    // Minimum interval between requests
     if (timeSinceLastRequest < this.minRequestInterval) {
       const waitTime = this.minRequestInterval - timeSinceLastRequest;
+      logger.info('Rate limiting - waiting before request', { waitTime });
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
     this.lastRequestTime = Date.now();
     this.requestCount++;
     
-    // Additional rate limiting for high usage
-    if (this.requestCount > 100) {
-      throw new Error('RATE_LIMIT_EXCEEDED');
+    // Additional rate limiting for suspicious activity
+    if (this.suspiciousRequests > 20) {
+      logger.warn('High suspicious activity - applying additional rate limiting');
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 
   async makeRequestWithRetry(prompt, requestId, retryCount = 0) {
     try {
+      logger.info('Making Gemini API request', {
+        requestId,
+        retryCount,
+        promptLength: prompt.length
+      });
+
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('REQUEST_TIMEOUT')), this.requestTimeout)
       );
@@ -467,30 +738,55 @@ CRITICAL INSTRUCTIONS:
       const text = response.text();
 
       if (!text || text.trim().length === 0) {
+        logger.warn('Empty response from Gemini API', { requestId });
         throw new Error('EMPTY_RESPONSE');
       }
 
       if (text.length > 50000) {
+        logger.warn('Response too large from Gemini API', { 
+          requestId, 
+          responseLength: text.length 
+        });
         throw new Error('RESPONSE_TOO_LARGE');
       }
+
+      logger.info('Gemini API request successful', {
+        requestId,
+        responseLength: text.length,
+        retryCount
+      });
 
       return this.parseAndValidateResponse(text, requestId);
 
     } catch (error) {
+      logger.error('Gemini API request failed', {
+        requestId,
+        retryCount,
+        error: error.message,
+        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      });
+
       if (retryCount < this.maxRetries && this.isRetryableError(error)) {
         const delay = this.retryDelay * Math.pow(2, retryCount);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        logger.info('Retrying Gemini API request', {
+          requestId,
+          retryCount: retryCount + 1,
+          delay
+        });
         
+        await new Promise(resolve => setTimeout(resolve, delay));
         return this.makeRequestWithRetry(prompt, requestId, retryCount + 1);
       }
       
       // Map common API errors
-      if (error.message.includes('429')) {
+      if (error.message.includes('429') || error.message.includes('quota')) {
         throw new Error('RATE_LIMIT_EXCEEDED');
-      } else if (error.message.includes('503')) {
+      } else if (error.message.includes('503') || error.message.includes('502')) {
         throw new Error('SERVICE_UNAVAILABLE');
-      } else if (error.message.includes('quota')) {
-        throw new Error('QUOTA_EXCEEDED');
+      } else if (error.message.includes('401') || error.message.includes('403')) {
+        throw new Error('AUTHENTICATION_ERROR');
+      } else if (error.message.includes('400')) {
+        throw new Error('INVALID_REQUEST');
       }
       
       throw error;
@@ -501,11 +797,17 @@ CRITICAL INSTRUCTIONS:
     try {
       let cleanedText = text.trim();
       
-      // Remove various markdown formats
+      logger.info('Parsing Gemini response', {
+        requestId,
+        responseLength: cleanedText.length
+      });
+      
+      // Remove various markdown formats more aggressively
       cleanedText = cleanedText.replace(/```json\s*|\s*```/g, '');
       cleanedText = cleanedText.replace(/```\s*|\s*```/g, '');
       cleanedText = cleanedText.replace(/^```.*?\n/gm, '');
       cleanedText = cleanedText.replace(/\n```$/gm, '');
+      cleanedText = cleanedText.replace(/^json\s*/gm, '');
       
       // Find JSON boundaries more reliably
       const jsonStart = cleanedText.indexOf('{');
@@ -524,18 +826,40 @@ CRITICAL INSTRUCTIONS:
       }
       
       if (jsonStart === -1 || jsonEnd === -1) {
+        logger.error('No valid JSON found in response', {
+          requestId,
+          responsePreview: cleanedText.substring(0, 200)
+        });
         throw new Error('NO_JSON_FOUND');
       }
       
       const jsonString = cleanedText.slice(jsonStart, jsonEnd);
+      
+      logger.info('Attempting to parse JSON response', {
+        requestId,
+        jsonLength: jsonString.length
+      });
+      
       const jsonResponse = JSON.parse(jsonString);
       
       // Comprehensive validation
       this.validateComprehensiveResponse(jsonResponse);
       
+      logger.info('Response parsed and validated successfully', {
+        requestId,
+        score: jsonResponse.score,
+        hasExtractedInfo: !!jsonResponse.extractedInfo
+      });
+      
       return this.sanitizeComprehensiveResponse(jsonResponse);
       
     } catch (parseError) {
+      logger.error('Response parsing failed', {
+        requestId,
+        error: parseError.message,
+        responsePreview: text.substring(0, 200)
+      });
+      
       if (parseError.name === 'SyntaxError') {
         throw new Error('MALFORMED_JSON');
       }
@@ -550,53 +874,66 @@ CRITICAL INSTRUCTIONS:
     
     for (const field of requiredFields) {
       if (!(field in response)) {
+        logger.error('Missing required field in response', { field });
         throw new Error(`MISSING_FIELD_${field.toUpperCase()}`);
       }
     }
 
     // Validate score
     if (typeof response.score !== 'number' || response.score < 0 || response.score > 100) {
+      logger.error('Invalid score in response', { score: response.score });
       throw new Error('INVALID_SCORE');
     }
 
     // Validate arrays
     if (!Array.isArray(response.strengths) || response.strengths.length === 0) {
+      logger.error('Invalid strengths array', { strengths: response.strengths });
       throw new Error('INVALID_STRENGTHS');
     }
 
     if (!Array.isArray(response.weaknesses) || response.weaknesses.length === 0) {
+      logger.error('Invalid weaknesses array', { weaknesses: response.weaknesses });
       throw new Error('INVALID_WEAKNESSES');
     }
 
     if (!Array.isArray(response.improvements) || response.improvements.length === 0) {
+      logger.error('Invalid improvements array', { improvements: response.improvements });
       throw new Error('INVALID_IMPROVEMENTS');
     }
 
     // Validate improvement structure
     for (const improvement of response.improvements) {
       if (!improvement.priority || !improvement.title || !improvement.description) {
+        logger.error('Invalid improvement structure', { improvement });
         throw new Error('INVALID_IMPROVEMENT_STRUCTURE');
       }
       
       if (!['high', 'medium', 'low'].includes(improvement.priority)) {
+        logger.error('Invalid improvement priority', { priority: improvement.priority });
         throw new Error('INVALID_IMPROVEMENT_PRIORITY');
       }
     }
 
     // Validate extracted info structure (if present)
     if (response.extractedInfo && typeof response.extractedInfo !== 'object') {
+      logger.error('Invalid extracted info structure');
       throw new Error('INVALID_EXTRACTED_INFO_STRUCTURE');
     }
 
     // Validate resume analytics (if present)
     if (response.resumeAnalytics && typeof response.resumeAnalytics !== 'object') {
+      logger.error('Invalid analytics structure');
       throw new Error('INVALID_ANALYTICS_STRUCTURE');
     }
+
+    logger.info('Response validation successful');
   }
 
   // Enhanced sanitization for comprehensive response
   sanitizeComprehensiveResponse(response) {
-    return {
+    logger.info('Sanitizing comprehensive response');
+    
+    const sanitized = {
       roastFeedback: validator.escape(response.roastFeedback || '').substring(0, 3000),
       score: Math.max(0, Math.min(100, Math.round(response.score || 0))),
       strengths: (response.strengths || [])
@@ -626,10 +963,21 @@ CRITICAL INSTRUCTIONS:
       // Contact validation
       contactValidation: this.sanitizeContactValidation(response.contactValidation || {})
     };
+
+    logger.info('Response sanitization completed', {
+      strengthsCount: sanitized.strengths.length,
+      weaknessesCount: sanitized.weaknesses.length,
+      improvementsCount: sanitized.improvements.length,
+      score: sanitized.score
+    });
+
+    return sanitized;
   }
 
-  // Enhanced extraction sanitization
+  // Enhanced extraction sanitization (keeping the same structure but adding logging)
   sanitizeExtractedInfo(extractedInfo) {
+    logger.info('Sanitizing extracted info');
+    
     return {
       personalInfo: {
         name: extractedInfo.personalInfo?.name ? 
@@ -815,16 +1163,24 @@ CRITICAL INSTRUCTIONS:
       'RATE_LIMITED',
       'SERVICE_UNAVAILABLE',
       'INTERNAL_ERROR',
-      'RESPONSE_TOO_LARGE'
+      'RESPONSE_TOO_LARGE',
+      'EMPTY_RESPONSE'
     ];
     
-    return retryableErrors.some(retryableError => 
+    const isRetryable = retryableErrors.some(retryableError => 
       error.message.includes(retryableError) || 
       error.message.includes('503') || 
       error.message.includes('429') ||
       error.message.includes('502') ||
       error.message.includes('504')
     );
+
+    logger.info('Checking if error is retryable', {
+      errorMessage: error.message,
+      isRetryable
+    });
+
+    return isRetryable;
   }
 
   getErrorCode(errorMessage) {
@@ -840,8 +1196,12 @@ CRITICAL INSTRUCTIONS:
       'MALFORMED_JSON': 'PARSING_ERROR',
       'INVALID_RESPONSE_FORMAT': 'PARSING_ERROR',
       'RATE_LIMIT_EXCEEDED': 'RATE_LIMITED',
+      'HOURLY_RATE_LIMIT_EXCEEDED': 'RATE_LIMITED',
       'QUOTA_EXCEEDED': 'QUOTA_ERROR',
-      'SERVICE_UNAVAILABLE': 'SERVICE_ERROR'
+      'SERVICE_UNAVAILABLE': 'SERVICE_ERROR',
+      'AUTHENTICATION_ERROR': 'AUTH_ERROR',
+      'INVALID_REQUEST': 'REQUEST_ERROR',
+      'SUSPICIOUS_CONTENT_DETECTED': 'SECURITY_ERROR'
     };
     
     return errorCodes[errorMessage] || 'AI_ERROR';
@@ -860,8 +1220,12 @@ CRITICAL INSTRUCTIONS:
       'MALFORMED_JSON': 'AI response contains malformed data',
       'INVALID_RESPONSE_FORMAT': 'AI response format is invalid',
       'RATE_LIMIT_EXCEEDED': 'Too many requests. Please wait a moment before trying again.',
+      'HOURLY_RATE_LIMIT_EXCEEDED': 'Hourly request limit exceeded. Please try again in an hour.',
       'QUOTA_EXCEEDED': 'Analysis quota exceeded. Please try again later.',
-      'SERVICE_UNAVAILABLE': 'AI analysis service is temporarily unavailable'
+      'SERVICE_UNAVAILABLE': 'AI analysis service is temporarily unavailable',
+      'AUTHENTICATION_ERROR': 'AI service authentication failed',
+      'INVALID_REQUEST': 'Invalid request format',
+      'SUSPICIOUS_CONTENT_DETECTED': 'Content flagged for security review'
     };
     
     return errorMessages[errorMessage] || 'AI analysis service temporarily unavailable';
@@ -915,8 +1279,14 @@ CRITICAL INSTRUCTIONS:
         break;
         
       case 'RATE_LIMIT_EXCEEDED':
+      case 'HOURLY_RATE_LIMIT_EXCEEDED':
         baseErrorResponse.roastFeedback = 'You\'ve made too many analysis requests. Please wait a moment before trying again.';
         baseErrorResponse.improvements[0].description = 'Wait a few minutes before submitting another resume for analysis.';
+        break;
+
+      case 'SUSPICIOUS_CONTENT_DETECTED':
+        baseErrorResponse.roastFeedback = 'Your submission has been flagged for security review. Please ensure your resume contains only professional content.';
+        baseErrorResponse.improvements[0].description = 'Upload a standard professional resume without unusual formatting or content.';
         break;
         
       default:
@@ -926,26 +1296,68 @@ CRITICAL INSTRUCTIONS:
     return baseErrorResponse;
   }
 
-  // Get service health and statistics
+  // Get comprehensive service health and statistics
   getServiceHealth() {
+    const errorRate = this.errorCount / Math.max(1, this.successCount + this.errorCount) * 100;
+    
     return {
-      healthy: true,
+      healthy: errorRate < 50, // Consider unhealthy if error rate > 50%
+      timestamp: new Date().toISOString(),
       statistics: {
         requestCount: this.requestCount,
+        successCount: this.successCount,
+        errorCount: this.errorCount,
+        errorRate: parseFloat(errorRate.toFixed(2)),
+        averageProcessingTime: Math.round(this.averageProcessingTime),
         lastRequestTime: this.lastRequestTime,
-        maxRetries: this.maxRetries,
-        requestTimeout: this.requestTimeout
+        suspiciousRequests: this.suspiciousRequests,
+        blockedRequests: this.blockedRequests
       },
       configuration: {
         model: 'gemini-1.5-flash',
         maxOutputTokens: 4000,
         temperature: 0.6,
-        safetySettings: 'enabled'
+        safetySettings: 'enabled',
+        maxRetries: this.maxRetries,
+        requestTimeout: this.requestTimeout,
+        hourlyLimit: this.hourlyRequestLimit,
+        dailyLimit: this.dailyRequestLimit
       },
       rateLimit: {
         requestsThisHour: this.requestCount,
-        minRequestInterval: this.minRequestInterval
+        hourlyLimit: this.hourlyRequestLimit,
+        minRequestInterval: this.minRequestInterval,
+        isNearLimit: this.requestCount > this.hourlyRequestLimit * 0.8
+      },
+      security: {
+        suspiciousRequests: this.suspiciousRequests,
+        blockedRequests: this.blockedRequests,
+        securityChecksEnabled: true
       }
+    };
+  }
+
+  // Get detailed service metrics for monitoring
+  getDetailedMetrics() {
+    return {
+      performance: {
+        successCount: this.successCount,
+        errorCount: this.errorCount,
+        totalProcessingTime: this.totalProcessingTime,
+        averageProcessingTime: this.averageProcessingTime,
+        requestCount: this.requestCount
+      },
+      security: {
+        suspiciousRequests: this.suspiciousRequests,
+        blockedRequests: this.blockedRequests,
+        securityScore: Math.max(0, 100 - (this.suspiciousRequests * 2) - (this.blockedRequests * 5))
+      },
+      rateLimit: {
+        hourlyUsage: this.requestCount,
+        hourlyLimit: this.hourlyRequestLimit,
+        utilizationPercentage: (this.requestCount / this.hourlyRequestLimit * 100).toFixed(2)
+      },
+      timestamp: new Date().toISOString()
     };
   }
 }
