@@ -6,11 +6,32 @@ const crypto = require('crypto');
 const helmet = require('helmet');
 const geminiService = require('../services/geminiService');
 const fileProcessor = require('../services/fileProcessor');
-const logger = require('../utils/logger');
 const resumeStorage = require('../services/resumeStorageEnhanced');
 const { connectDB } = require('../config/database');
+const winston = require('winston');
 
 const router = express.Router();
+
+// Production logger setup
+const logger = winston.createLogger({
+  level: process.env.NODE_ENV === 'production' ? 'warn' : 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'logs/combined.log' })
+  ]
+});
+
+// Only add console logging in development
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.simple()
+  }));
+}
 
 // Production-grade rate limiting for resume analysis
 const analyzeRateLimit = rateLimit({
@@ -81,7 +102,7 @@ const upload = multer({
         // Generate secure filename
         const timestamp = Date.now();
         const sanitizedName = file.originalname
-          .replace(/[^a-zA-Z0-9.-]/g, '_')
+          .replace(/[^a-zA-Z0-9._\-\s()]/g, '_')
           .substring(0, 100); // Limit filename length
         
         file.originalname = `${timestamp}_${sanitizedName}`;
@@ -125,6 +146,12 @@ const validateAnalysisInput = (req, res, next) => {
     }
     
     if (errors.length > 0) {
+      logger.warn('Input validation failed', {
+        errors,
+        ip: req.ip,
+        userAgent: req.get('User-Agent')?.substring(0, 100)
+      });
+      
       return res.status(400).json({
         error: {
           message: 'Invalid input parameters',
@@ -143,6 +170,11 @@ const validateAnalysisInput = (req, res, next) => {
     
     next();
   } catch (error) {
+    logger.error('Input validation error', {
+      error: error.message,
+      ip: req.ip
+    });
+    
     return res.status(400).json({
       error: {
         message: 'Input validation failed',
@@ -197,245 +229,121 @@ const validateFileIntegrity = (file) => {
   return true;
 };
 
-// Enhanced function to extract comprehensive structured resume data
+// Enhanced function to extract comprehensive structured resume data (SECURE - NO PII STORED)
 const extractResumeData = (resumeText) => {
   try {
-    // Initialize extracted information structure
+    // Initialize ANONYMIZED extracted information structure (NO PII)
     const extractedInfo = {
-      name: null,
-      email: null,
-      phone: null,
-      address: null,
-      linkedin: null,
-      github: null,
-      website: null,
-      portfolio: null,
-      jobTitle: null,
-      summary: null,
-      objective: null,
-      skills: [],
-      technicalSkills: [],
-      softSkills: [],
-      languages: [],
-      experience: [],
-      education: [],
-      certifications: [],
-      projects: [],
-      awards: [],
-      publications: [],
-      volunteerWork: [],
-      hobbies: [],
-      references: [],
-      keywords: [],
-      totalExperienceYears: 0,
-      city: null,
-      state: null,
-      country: null,
-      experienceLevel: 'unknown'
+      // Personal info flags (NO ACTUAL DATA - JUST BOOLEANS)
+      personalInfo: {
+        hasName: false,
+        hasEmail: false,
+        hasPhone: false,
+        hasAddress: false,
+        hasLinkedIn: false,
+        hasGithub: false,
+        hasPortfolio: false
+      },
+      
+      // Professional info (sanitized counts/categories only)
+      professional: {
+        hasJobTitle: false,
+        hasSummary: false,
+        experienceLevel: 'unknown',
+        totalExperienceYears: 0,
+        industryType: 'other'
+      },
+      
+      // Skills analysis (counts only - NO ACTUAL SKILLS)
+      skills: {
+        technicalSkillsCount: 0,
+        softSkillsCount: 0,
+        programmingLanguages: 0,
+        frameworks: 0,
+        databases: 0,
+        cloudPlatforms: 0,
+        certifications: 0
+      },
+      
+      // Experience analysis (anonymized)
+      experience: {
+        jobCount: 0,
+        hasCurrentRole: false,
+        averageJobDuration: 0,
+        hasInternships: false,
+        hasFreelance: false,
+        hasLeadershipRoles: false
+      },
+      
+      // Education analysis (anonymized)
+      education: {
+        degreeCount: 0,
+        highestDegree: 'unknown',
+        hasRelevantDegree: false,
+        hasOnlineCourses: false,
+        hasCertifications: false
+      }
     };
 
     const text = resumeText.toLowerCase();
     const lines = resumeText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-    // Extract email with better pattern
-    const emailMatch = resumeText.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
-    if (emailMatch) {
-      extractedInfo.email = emailMatch[0].toLowerCase();
-    }
+    // Check for presence of information (NO EXTRACTION - JUST DETECTION)
+    extractedInfo.personalInfo.hasEmail = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/.test(resumeText);
+    extractedInfo.personalInfo.hasPhone = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/.test(resumeText);
+    extractedInfo.personalInfo.hasLinkedIn = /linkedin\.com\/in\//i.test(resumeText);
+    extractedInfo.personalInfo.hasGithub = /github\.com\//i.test(resumeText);
+    extractedInfo.personalInfo.hasPortfolio = /(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/i.test(resumeText);
+    extractedInfo.personalInfo.hasName = lines.length > 0 && lines[0].length > 3 && lines[0].length < 50;
+    extractedInfo.personalInfo.hasAddress = /\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|city|state|zip|postal)\b/i.test(text);
 
-    // Extract phone number with international support
-    const phonePatterns = [
-      /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/,
-      /(?:\+?91[-.\s]?)?[6-9]\d{9}/,
-      /(?:\+?44[-.\s]?)?[1-9]\d{8,10}/
-    ];
+    // Professional info detection
+    extractedInfo.professional.hasJobTitle = /\b(?:engineer|developer|manager|analyst|consultant|director|lead|senior|junior)\b/i.test(text);
+    extractedInfo.professional.hasSummary = /\b(?:summary|profile|objective|about)\b/i.test(text);
+
+    // Skills counting (categories only)
+    const techKeywords = ['javascript', 'python', 'java', 'react', 'node', 'sql', 'aws', 'docker', 'git', 'html', 'css'];
+    const softKeywords = ['leadership', 'communication', 'teamwork', 'problem solving', 'management'];
     
-    for (const pattern of phonePatterns) {
-      const phoneMatch = resumeText.match(pattern);
-      if (phoneMatch) {
-        extractedInfo.phone = phoneMatch[0];
-        break;
+    extractedInfo.skills.technicalSkillsCount = techKeywords.filter(keyword => text.includes(keyword)).length;
+    extractedInfo.skills.softSkillsCount = softKeywords.filter(keyword => text.includes(keyword)).length;
+
+    // Experience level estimation (without storing details)
+    const yearMatches = resumeText.match(/(\d{4})/g);
+    if (yearMatches && yearMatches.length >= 2) {
+      const years = yearMatches.map(y => parseInt(y)).filter(y => y > 1990 && y <= new Date().getFullYear()).sort();
+      if (years.length >= 2) {
+        extractedInfo.professional.totalExperienceYears = Math.min(50, years[years.length - 1] - years[0]);
       }
-    }
-
-    // Extract social profiles
-    const linkedinMatch = resumeText.match(/(?:linkedin\.com\/in\/|linkedin\.com\/profile\/view\?id=)([a-zA-Z0-9-]+)/i);
-    if (linkedinMatch) {
-      extractedInfo.linkedin = `https://linkedin.com/in/${linkedinMatch[1]}`;
-    }
-
-    const githubMatch = resumeText.match(/(?:github\.com\/)([a-zA-Z0-9-]+)/i);
-    if (githubMatch) {
-      extractedInfo.github = `https://github.com/${githubMatch[1]}`;
-    }
-
-    // Extract website/portfolio
-    const websiteMatch = resumeText.match(/(?:https?:\/\/)?(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/i);
-    if (websiteMatch && !websiteMatch[0].includes('linkedin') && !websiteMatch[0].includes('github')) {
-      extractedInfo.website = websiteMatch[0].startsWith('http') ? websiteMatch[0] : `https://${websiteMatch[0]}`;
-    }
-
-    // Extract name (improved logic)
-    for (let i = 0; i < Math.min(5, lines.length); i++) {
-      const line = lines[i];
-      if (line.length > 3 && line.length < 50 && 
-          /^[A-Za-z\s.']+$/.test(line) && 
-          line.split(' ').length >= 2 && 
-          line.split(' ').length <= 4 &&
-          !line.toLowerCase().includes('resume') &&
-          !line.toLowerCase().includes('cv')) {
-        extractedInfo.name = line;
-        break;
-      }
-    }
-
-    // Extract job title/objective
-    const titleKeywords = ['software engineer', 'developer', 'manager', 'analyst', 'consultant', 'director', 'lead'];
-    for (const line of lines.slice(0, 10)) {
-      if (titleKeywords.some(keyword => line.toLowerCase().includes(keyword))) {
-        extractedInfo.jobTitle = line;
-        break;
-      }
-    }
-
-    // Extract summary/objective
-    const summaryMatch = resumeText.match(/(?:summary|profile|objective|about)[:\s]*([^]*?)(?:\n\s*\n|experience|education|skills|$)/i);
-    if (summaryMatch) {
-      extractedInfo.summary = summaryMatch[1].trim().substring(0, 500);
-    }
-
-    // Enhanced skills extraction
-    const skillsSection = resumeText.match(/(?:skills?|technical skills?|core competencies|technologies)[:\s]*([^]*?)(?:\n\s*\n|experience|education|projects|$)/i);
-    if (skillsSection) {
-      const skillsText = skillsSection[1];
-      const skills = skillsText
-        .split(/[,\n•·\-\*\|]/)
-        .map(skill => skill.trim())
-        .filter(skill => skill.length > 1 && skill.length < 30)
-        .slice(0, 30);
-      
-      extractedInfo.skills = skills;
-      
-      // Categorize skills
-      const techKeywords = ['javascript', 'python', 'java', 'react', 'node', 'sql', 'aws', 'docker', 'git'];
-      const softKeywords = ['leadership', 'communication', 'teamwork', 'problem solving', 'management'];
-      
-      extractedInfo.technicalSkills = skills.filter(skill => 
-        techKeywords.some(keyword => skill.toLowerCase().includes(keyword))
-      );
-      
-      extractedInfo.softSkills = skills.filter(skill => 
-        softKeywords.some(keyword => skill.toLowerCase().includes(keyword))
-      );
-    }
-
-    // Enhanced experience extraction
-    const experienceSection = resumeText.match(/(?:experience|work experience|employment history)[:\s]*([^]*?)(?:\n\s*\n|education|skills|projects|$)/i);
-    if (experienceSection) {
-      const expText = experienceSection[1];
-      const experiences = expText.split(/\n\n/).filter(exp => exp.trim().length > 20);
-      
-      extractedInfo.experience = experiences.slice(0, 10).map(exp => {
-        const lines = exp.split('\n').filter(line => line.trim());
-        return {
-          title: lines[0] ? lines[0].substring(0, 100) : 'N/A',
-          company: lines[1] ? lines[1].substring(0, 100) : 'N/A',
-          duration: 'N/A',
-          description: exp.substring(0, 500)
-        };
-      });
-      
-      // Calculate total experience years
-      const yearMatches = expText.match(/(\d{4})/g);
-      if (yearMatches && yearMatches.length >= 2) {
-        const years = yearMatches.map(y => parseInt(y)).sort();
-        extractedInfo.totalExperienceYears = years[years.length - 1] - years[0];
-      }
-    }
-
-    // Enhanced education extraction
-    const educationSection = resumeText.match(/(?:education|academic background|qualifications)[:\s]*([^]*?)(?:\n\s*\n|experience|skills|projects|$)/i);
-    if (educationSection) {
-      const eduText = educationSection[1];
-      const educations = eduText.split(/\n\n/).filter(edu => edu.trim().length > 10);
-      
-      extractedInfo.education = educations.slice(0, 5).map(edu => {
-        const lines = edu.split('\n').filter(line => line.trim());
-        return {
-          degree: lines[0] ? lines[0].substring(0, 100) : 'N/A',
-          institution: lines[1] ? lines[1].substring(0, 100) : 'N/A',
-          year: 'N/A'
-        };
-      });
-    }
-
-    // Extract certifications
-    const certSection = resumeText.match(/(?:certifications?|licenses?)[:\s]*([^]*?)(?:\n\s*\n|experience|education|skills|$)/i);
-    if (certSection) {
-      const certText = certSection[1];
-      const certs = certText.split(/\n/).filter(cert => cert.trim().length > 5);
-      
-      extractedInfo.certifications = certs.slice(0, 10).map(cert => ({
-        name: cert.substring(0, 100),
-        issuer: 'N/A',
-        date: 'N/A'
-      }));
-    }
-
-    // Extract projects
-    const projectSection = resumeText.match(/(?:projects?|portfolio)[:\s]*([^]*?)(?:\n\s*\n|experience|education|skills|$)/i);
-    if (projectSection) {
-      const projText = projectSection[1];
-      const projects = projText.split(/\n\n/).filter(proj => proj.trim().length > 15);
-      
-      extractedInfo.projects = projects.slice(0, 10).map(proj => {
-        const lines = proj.split('\n').filter(line => line.trim());
-        return {
-          name: lines[0] ? lines[0].substring(0, 100) : 'N/A',
-          description: proj.substring(0, 300),
-          technologies: []
-        };
-      });
     }
 
     // Determine experience level
-    if (extractedInfo.totalExperienceYears === 0) {
-      extractedInfo.experienceLevel = 'entry';
-    } else if (extractedInfo.totalExperienceYears <= 2) {
-      extractedInfo.experienceLevel = 'junior';
-    } else if (extractedInfo.totalExperienceYears <= 5) {
-      extractedInfo.experienceLevel = 'mid';
-    } else if (extractedInfo.totalExperienceYears <= 10) {
-      extractedInfo.experienceLevel = 'senior';
+    if (extractedInfo.professional.totalExperienceYears === 0) {
+      extractedInfo.professional.experienceLevel = 'entry';
+    } else if (extractedInfo.professional.totalExperienceYears <= 2) {
+      extractedInfo.professional.experienceLevel = 'junior';
+    } else if (extractedInfo.professional.totalExperienceYears <= 5) {
+      extractedInfo.professional.experienceLevel = 'mid';
+    } else if (extractedInfo.professional.totalExperienceYears <= 10) {
+      extractedInfo.professional.experienceLevel = 'senior';
     } else {
-      extractedInfo.experienceLevel = 'executive';
+      extractedInfo.professional.experienceLevel = 'executive';
     }
 
-    // Extract keywords for searchability
-    const commonKeywords = [
-      'JavaScript', 'Python', 'Java', 'React', 'Node.js', 'HTML', 'CSS', 'SQL',
-      'MongoDB', 'MySQL', 'Git', 'Docker', 'AWS', 'Azure', 'Leadership',
-      'Management', 'Communication', 'Problem Solving', 'Team Work', 'Agile',
-      'Scrum', 'Machine Learning', 'AI', 'Data Science', 'Full Stack'
-    ];
-    
-    extractedInfo.keywords = commonKeywords.filter(keyword => 
-      text.includes(keyword.toLowerCase())
-    );
+    // Count sections (anonymized)
+    extractedInfo.experience.jobCount = Math.min(20, (text.match(/\b(?:experience|work|employment)\b/gi) || []).length);
+    extractedInfo.education.degreeCount = Math.min(5, (text.match(/\b(?:degree|bachelor|master|phd|diploma)\b/gi) || []).length);
+    extractedInfo.skills.certifications = Math.min(10, (text.match(/\b(?:certified|certification|license)\b/gi) || []).length);
 
     return extractedInfo;
   } catch (error) {
-    if (process.env.NODE_ENV !== 'production') {
-      logger.error('Error extracting resume data:', error);
-    }
+    logger.error('Error extracting resume data', { error: error.message });
     return {
-      name: null,
-      email: null,
-      phone: null,
-      skills: [],
-      experience: [],
-      education: [],
-      keywords: []
+      personalInfo: { hasName: false, hasEmail: false, hasPhone: false, hasAddress: false, hasLinkedIn: false, hasGithub: false, hasPortfolio: false },
+      professional: { hasJobTitle: false, hasSummary: false, experienceLevel: 'unknown', totalExperienceYears: 0, industryType: 'other' },
+      skills: { technicalSkillsCount: 0, softSkillsCount: 0, programmingLanguages: 0, frameworks: 0, databases: 0, cloudPlatforms: 0, certifications: 0 },
+      experience: { jobCount: 0, hasCurrentRole: false, averageJobDuration: 0, hasInternships: false, hasFreelance: false, hasLeadershipRoles: false },
+      education: { degreeCount: 0, highestDegree: 'unknown', hasRelevantDegree: false, hasOnlineCourses: false, hasCertifications: false }
     };
   }
 };
@@ -460,13 +368,6 @@ const analyzeDocumentStats = (resumeText, file) => {
     const hasProjects = /projects?|portfolio/i.test(resumeText);
     const hasSummary = /summary|profile|objective|about/i.test(resumeText);
 
-    // Count different sections
-    const skillsCount = (resumeText.match(/skills?|technical|competencies/gi) || []).length;
-    const experienceCount = (resumeText.match(/experience|work|employment/gi) || []).length;
-    const educationCount = (resumeText.match(/education|academic|degree/gi) || []).length;
-    const projectsCount = (resumeText.match(/projects?|portfolio/gi) || []).length;
-    const certificationsCount = (resumeText.match(/certifications?|licenses?/gi) || []).length;
-
     return {
       wordCount: words.length,
       pageCount: Math.max(1, Math.ceil(words.length / 250)), // Estimate pages
@@ -485,16 +386,12 @@ const analyzeDocumentStats = (resumeText, file) => {
       hasSummary,
       textLength: resumeText.length,
       uniqueWordsCount: uniqueWords.length,
-      skillsCount,
-      experienceCount,
-      educationCount,
-      projectsCount,
-      certificationsCount,
       processingTime: 0,
       extractionTime: 0,
       analysisTime: 0
     };
   } catch (error) {
+    logger.error('Error analyzing document stats', { error: error.message });
     return {
       wordCount: 0,
       pageCount: 1,
@@ -513,11 +410,6 @@ const analyzeDocumentStats = (resumeText, file) => {
       hasSummary: false,
       textLength: 0,
       uniqueWordsCount: 0,
-      skillsCount: 0,
-      experienceCount: 0,
-      educationCount: 0,
-      projectsCount: 0,
-      certificationsCount: 0,
       processingTime: 0,
       extractionTime: 0,
       analysisTime: 0
@@ -540,6 +432,7 @@ router.post('/analyze',
     try {
       // Validate file presence and integrity
       if (!req.file) {
+        logger.warn('No file uploaded', { requestId, ip: clientIP });
         return res.status(400).json({
           error: {
             message: 'No resume file uploaded. Please select a PDF or DOCX file.',
@@ -578,6 +471,13 @@ router.post('/analyze',
           default:
             errorMessage = 'File validation failed. Please ensure you upload a valid PDF or DOCX file.';
         }
+        
+        logger.warn('File validation failed', { 
+          requestId, 
+          error: validationError.message, 
+          fileName: req.file?.originalname,
+          ip: clientIP 
+        });
         
         return res.status(400).json({
           error: {
@@ -618,6 +518,13 @@ router.post('/analyze',
           errorCode = 'UNSUPPORTED_FORMAT';
         }
         
+        logger.error('Text extraction failed', {
+          requestId,
+          error: extractionError.message,
+          fileName: req.file?.originalname,
+          ip: clientIP
+        });
+        
         return res.status(400).json({
           error: {
             message: errorMessage,
@@ -632,6 +539,7 @@ router.post('/analyze',
       
       // Enhanced text validation
       if (!resumeText || typeof resumeText !== 'string') {
+        logger.warn('No text extracted', { requestId, fileName: req.file?.originalname });
         return res.status(400).json({
           error: {
             message: 'Unable to extract text from the resume. Please ensure your file contains readable content.',
@@ -643,6 +551,11 @@ router.post('/analyze',
       }
       
       if (resumeText.trim().length < 100) {
+        logger.warn('Insufficient content', { 
+          requestId, 
+          textLength: resumeText.trim().length,
+          fileName: req.file?.originalname 
+        });
         return res.status(400).json({
           error: {
             message: 'Resume content is too short. Please upload a complete resume with at least 100 characters.',
@@ -660,6 +573,11 @@ router.post('/analyze',
         .trim();
       
       if (sanitizedText.length < 50) {
+        logger.warn('Invalid content after sanitization', { 
+          requestId, 
+          originalLength: resumeText.length,
+          sanitizedLength: sanitizedText.length 
+        });
         return res.status(400).json({
           error: {
             message: 'The resume content appears to be invalid after processing. Please ensure it contains standard text.',
@@ -670,7 +588,7 @@ router.post('/analyze',
         });
       }
 
-      // Extract comprehensive structured resume data
+      // Extract comprehensive structured resume data (SECURE - NO PII)
       const extractedInfo = extractResumeData(resumeText);
       const statistics = analyzeDocumentStats(resumeText, req.file);
       
@@ -702,6 +620,12 @@ router.post('/analyze',
         } catch (aiError) {
           retryCount++;
           if (retryCount > maxRetries) {
+            logger.error('AI analysis failed after retries', {
+              requestId,
+              error: aiError.message,
+              retryCount,
+              ip: clientIP
+            });
             throw aiError;
           }
           await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
@@ -716,6 +640,7 @@ router.post('/analyze',
       statistics.processingTime = processingTime;
 
       if (!analysis || !analysis.success) {
+        logger.error('AI service unavailable', { requestId, ip: clientIP });
         return res.status(503).json({
           error: {
             message: 'AI analysis service is temporarily unavailable. Please try again in a few moments.',
@@ -736,6 +661,11 @@ router.post('/analyze',
       );
       
       if (missingFields.length > 0) {
+        logger.error('Incomplete AI response', { 
+          requestId, 
+          missingFields,
+          ip: clientIP 
+        });
         return res.status(502).json({
           error: {
             message: 'Received incomplete analysis from AI service. Please try again.',
@@ -748,6 +678,11 @@ router.post('/analyze',
 
       // Validate score is within expected range
       if (typeof analysis.data.score !== 'number' || analysis.data.score < 0 || analysis.data.score > 100) {
+        logger.error('Invalid AI score', { 
+          requestId, 
+          score: analysis.data.score,
+          ip: clientIP 
+        });
         return res.status(502).json({
           error: {
             message: 'Received invalid score from AI service. Please try again.',
@@ -765,7 +700,7 @@ router.post('/analyze',
           // AI Analysis Results
           ...analysis.data,
           
-          // Comprehensive Extracted Information
+          // Comprehensive Extracted Information (ANONYMIZED)
           extractedInfo: extractedInfo,
           
           // Document Statistics and Metadata
@@ -798,7 +733,7 @@ router.post('/analyze',
           
           const saveResult = await resumeStorage.saveResumeData(
             req.file,
-            resumeText, // Save original extracted text for admin
+            resumeText, // Save original extracted text for admin (NEVER SENT TO CLIENT)
             {
               ...analysis.data,
               extractedInfo: extractedInfo,
@@ -815,40 +750,49 @@ router.post('/analyze',
             }
           );
 
-          if (!saveResult.success && process.env.NODE_ENV !== 'production') {
-            logger.warn('Failed to save resume data to database', { 
+          if (!saveResult.success) {
+            logger.error('Failed to save resume data to database', { 
               requestId, 
               error: saveResult.error,
               resumeId: saveResult.resumeId
             });
-          }
-        } catch (saveError) {
-          if (process.env.NODE_ENV !== 'production') {
-            logger.error('Error saving resume data to database', { 
-              requestId, 
-              error: saveError.message,
-              stack: saveError.stack
+          } else {
+            logger.info('Resume data saved successfully', {
+              requestId,
+              resumeId: saveResult.resumeId,
+              score: analysis.data.score
             });
           }
+        } catch (saveError) {
+          logger.error('Error saving resume data to database', { 
+            requestId, 
+            error: saveError.message
+          });
         }
       });
 
       // Success response (don't include extractedText for security)
+      logger.info('Resume analysis completed', {
+        requestId,
+        score: analysis.data.score,
+        roastLevel,
+        processingTime,
+        ip: clientIP
+      });
+
       res.json(responseData);
 
     } catch (error) {
       const processingTime = Date.now() - startTime;
       
-      // Log critical errors (development only)
-      if (process.env.NODE_ENV !== 'production') {
-        logger.error('Critical error in resume analysis', {
-          requestId,
-          error: error.message,
-          stack: error.stack,
-          processingTime,
-          clientIP
-        });
-      }
+      // Log critical errors
+      logger.error('Critical error in resume analysis', {
+        requestId,
+        error: error.message,
+        processingTime,
+        ip: clientIP,
+        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      });
       
       // Generic error response for security
       res.status(500).json({
@@ -908,29 +852,33 @@ router.get('/info', securityHeaders, (req, res) => {
         'Multiple roast styles (Funny, Serious, Sarcastic, Motivational)',
         'Comprehensive scoring and feedback',
         'Secure file processing',
-        'Structured data extraction',
-        'Personal information extraction',
-        'Skills and experience parsing',
-        'Education and certification tracking',
-        'Project and achievement analysis',
+        'Anonymized data extraction',
         'Statistical analysis and metadata',
-        'Admin panel data storage'
+        'GDPR compliant data handling'
       ],
+      roastLevels: {
+        pyar: 'Mild & Encouraging - Sweet feedback with gentle suggestions',
+        ache: 'Balanced & Constructive - Professional feedback with honest critique',
+        dhang: 'Brutal & Raw - Harsh reality check with no sugar coating (includes gaali for authenticity)'
+      },
       limits: {
         maxFileSize: '5MB',
         supportedFormats: ['PDF', 'DOCX'],
         rateLimit: 'Max 3 analyses per 15 minutes'
       },
       dataExtracted: [
-        'Personal Information (Name, Email, Phone, Address)',
-        'Professional Profiles (LinkedIn, GitHub, Website)',
-        'Skills (Technical, Soft Skills, Languages)',
-        'Work Experience and Career History',
-        'Education and Academic Background',
-        'Certifications and Licenses',
-        'Projects and Portfolio',
-        'Awards and Achievements',
-        'Document Statistics and Metadata'
+        'Document structure analysis',
+        'Section presence detection',
+        'Statistical information',
+        'Professional level assessment',
+        'Content quality metrics'
+      ],
+      security: [
+        'No PII storage',
+        'Anonymized analytics only',
+        'Secure file processing',
+        'Rate limiting protection',
+        'Input validation and sanitization'
       ],
       requestId: req.requestId
     }
@@ -966,6 +914,12 @@ router.use((error, req, res, next) => {
         errorMessage = 'File upload failed. Please try again.';
     }
     
+    logger.warn('Multer error', {
+      requestId,
+      error: error.code,
+      ip: req.ip
+    });
+    
     return res.status(400).json({
       error: {
         message: errorMessage,
@@ -985,6 +939,12 @@ router.use((error, req, res, next) => {
   };
   
   if (customErrors[error.message]) {
+    logger.warn('Custom validation error', {
+      requestId,
+      error: error.message,
+      ip: req.ip
+    });
+    
     return res.status(400).json({
       error: {
         message: customErrors[error.message],
@@ -995,14 +955,13 @@ router.use((error, req, res, next) => {
     });
   }
   
-  // Log unexpected errors (development only)
-  if (process.env.NODE_ENV !== 'production') {
-    logger.error('Unexpected route error', {
-      requestId,
-      error: error.message,
-      stack: error.stack
-    });
-  }
+  // Log unexpected errors
+  logger.error('Unexpected route error', {
+    requestId,
+    error: error.message,
+    stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
+    ip: req.ip
+  });
   
   // Generic error response
   res.status(500).json({
