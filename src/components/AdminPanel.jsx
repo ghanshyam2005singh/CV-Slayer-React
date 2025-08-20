@@ -145,7 +145,7 @@ const AdminPanel = () => {
     }
   }, [apiRequest]);
 
-  // Load resumes
+  // Load resumes with proper nested field mapping
   const loadResumes = useCallback(async () => {
     try {
       setLoading(true);
@@ -157,12 +157,16 @@ const AdminPanel = () => {
         
         setResumes(resumesData.map(resume => ({
           id: resume.resumeId || resume._id || resume.id,
-          originalFileName: resume.originalFileName || 'Unknown',
+          originalFileName: resume.originalFileName || resume.fileName || 'Unknown',
           fileSize: resume.fileSize || 0,
           uploadedAt: resume.uploadedAt || resume.timestamps?.uploadedAt,
           score: resume.analysis?.overallScore || resume.score || 0,
-          language: resume.preferences?.language || 'N/A',
-          roastType: resume.preferences?.roastType || 'N/A'
+          language: resume.preferences?.roastSettings?.language || resume.preferences?.language || 'N/A',
+          roastType: resume.preferences?.roastSettings?.type || resume.preferences?.roastType || 'N/A',
+          // Extract display name from nested structure
+          displayName: resume.extractedInfo?.personalInfo?.name || 
+                      resume.extractedInfo?.name || 
+                      (resume.originalFileName || resume.fileName || 'Unknown').replace(/\.[^/.]+$/, "")
         })));
       } else {
         setResumes([]);
@@ -206,6 +210,170 @@ const AdminPanel = () => {
       return () => clearTimeout(timer);
     }
   }, [error]);
+
+  // Resume details renderer with proper nested field handling
+  const renderResumeDetails = () => (
+    <div className="resume-details">
+      <h3>Basic Information</h3>
+      <p><strong>File:</strong> {selectedResume.originalFileName || selectedResume.fileName || 'Unknown'}</p>
+      <p><strong>Size:</strong> {((selectedResume.fileSize || 0) / 1024).toFixed(2)} KB</p>
+      <p><strong>Uploaded:</strong> {new Date(selectedResume.uploadedAt || selectedResume.timestamps?.uploadedAt || Date.now()).toLocaleString()}</p>
+
+      {selectedResume.analysis && (
+        <>
+          <h3>Analysis Results</h3>
+          <p><strong>Overall Score:</strong> {selectedResume.analysis.overallScore || 0}/100</p>
+          
+          {selectedResume.analysis.scoringBreakdown && (
+            <div className="scoring-breakdown">
+              <h4>Score Breakdown:</h4>
+              <p><strong>Contact Info:</strong> {selectedResume.analysis.scoringBreakdown.contactInfo || 0}/100</p>
+              <p><strong>Work Experience:</strong> {selectedResume.analysis.scoringBreakdown.workExperience || 0}/100</p>
+              <p><strong>Education:</strong> {selectedResume.analysis.scoringBreakdown.education || 0}/100</p>
+              <p><strong>Skills:</strong> {selectedResume.analysis.scoringBreakdown.skills || 0}/100</p>
+              <p><strong>Formatting:</strong> {selectedResume.analysis.scoringBreakdown.formatting || 0}/100</p>
+              <p><strong>ATS Compatibility:</strong> {selectedResume.analysis.scoringBreakdown.atsCompatibility || 0}/100</p>
+            </div>
+          )}
+
+          {selectedResume.analysis.feedback?.roastFeedback && (
+            <div className="feedback-section">
+              <h4>AI Feedback:</h4>
+              <div className="feedback-text">
+                {selectedResume.analysis.feedback.roastFeedback}
+              </div>
+            </div>
+          )}
+
+          {selectedResume.analysis.feedback?.strengths?.length > 0 && (
+            <div className="strengths-section">
+              <h4>💪 Strengths:</h4>
+              <ul>
+                {selectedResume.analysis.feedback.strengths.map((strength, index) => (
+                  <li key={index}>{strength}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {selectedResume.analysis.feedback?.improvements?.length > 0 && (
+            <div className="improvements-section">
+              <h4>🎯 Improvements:</h4>
+              {selectedResume.analysis.feedback.improvements.map((improvement, index) => (
+                <div key={index} className={`improvement-item priority-${improvement.priority}`}>
+                  <strong>{improvement.title}</strong>
+                  <p>{improvement.description}</p>
+                  {improvement.example && <small><em>Example: {improvement.example}</em></small>}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {selectedResume.extractedInfo && (
+        <>
+          <h3>Extracted Information</h3>
+          <div className="extracted-info-grid">
+            <div className="info-section">
+              <h4>👤 Personal Details</h4>
+              <p><strong>Name:</strong> {selectedResume.extractedInfo?.personalInfo?.name || 'N/A'}</p>
+              <p><strong>Email:</strong> {selectedResume.extractedInfo?.personalInfo?.email || 'N/A'}</p>
+              <p><strong>Phone:</strong> {selectedResume.extractedInfo?.personalInfo?.phone || 'N/A'}</p>
+              <p><strong>Address:</strong> {selectedResume.extractedInfo?.personalInfo?.address?.full || 'N/A'}</p>
+              <p><strong>LinkedIn:</strong> {selectedResume.extractedInfo?.personalInfo?.socialProfiles?.linkedin || 'N/A'}</p>
+              <p><strong>GitHub:</strong> {selectedResume.extractedInfo?.personalInfo?.socialProfiles?.github || 'N/A'}</p>
+              <p><strong>Portfolio:</strong> {selectedResume.extractedInfo?.personalInfo?.socialProfiles?.portfolio || 'N/A'}</p>
+            </div>
+            
+            <div className="info-section">
+              <h4>💼 Professional Info</h4>
+              <p><strong>Professional Summary:</strong> {selectedResume.extractedInfo?.professionalSummary ? 'Yes' : 'No'}</p>
+              <p><strong>Current Job:</strong> {selectedResume.extractedInfo?.experience?.[0]?.title || 'N/A'}</p>
+              <p><strong>Current Company:</strong> {selectedResume.extractedInfo?.experience?.[0]?.company || 'N/A'}</p>
+              <p><strong>Total Experience:</strong> {selectedResume.extractedInfo?.experience?.length || 0} positions</p>
+            </div>
+            
+            <div className="info-section">
+              <h4>🛠️ Skills & Education</h4>
+              <p><strong>Technical Skills:</strong> {(selectedResume.extractedInfo?.skills?.technical || []).length}</p>
+              <p><strong>Soft Skills:</strong> {(selectedResume.extractedInfo?.skills?.soft || []).length}</p>
+              <p><strong>Languages:</strong> {(selectedResume.extractedInfo?.skills?.languages || []).length}</p>
+              <p><strong>Tools:</strong> {(selectedResume.extractedInfo?.skills?.tools || []).length}</p>
+              <p><strong>Frameworks:</strong> {(selectedResume.extractedInfo?.skills?.frameworks || []).length}</p>
+              <p><strong>Education:</strong> {(selectedResume.extractedInfo?.education || []).length} entries</p>
+              <p><strong>Projects:</strong> {(selectedResume.extractedInfo?.projects || []).length} listed</p>
+              <p><strong>Certifications:</strong> {(selectedResume.extractedInfo?.certifications || []).length} found</p>
+              <p><strong>Awards:</strong> {(selectedResume.extractedInfo?.awards || []).length} found</p>
+            </div>
+            
+            {((selectedResume.extractedInfo?.skills?.technical?.length || 0) + 
+              (selectedResume.extractedInfo?.skills?.soft?.length || 0)) > 0 && (
+              <div className="info-section">
+                <h4>🏷️ Skills List</h4>
+                <div className="skills-tags">
+                  {[...(selectedResume.extractedInfo?.skills?.technical || []), 
+                    ...(selectedResume.extractedInfo?.skills?.soft || [])]
+                    .slice(0, 15)
+                    .map((skill, index) => (
+                      <span key={index} className="skill-tag">{skill}</span>
+                    ))}
+                  {((selectedResume.extractedInfo?.skills?.technical?.length || 0) +
+                    (selectedResume.extractedInfo?.skills?.soft?.length || 0)) > 15 && (
+                    <span className="skill-tag more">
+                      +{((selectedResume.extractedInfo?.skills?.technical?.length || 0) +
+                        (selectedResume.extractedInfo?.skills?.soft?.length || 0)) - 15} more
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {selectedResume.preferences && (
+        <>
+          <h3>User Preferences</h3>
+          <div className="preferences-grid">
+            <p><strong>Gender:</strong> {selectedResume.preferences?.roastSettings?.gender || selectedResume.preferences?.gender || 'N/A'}</p>
+            <p><strong>Roast Level:</strong> {selectedResume.preferences?.roastSettings?.level || selectedResume.preferences?.roastLevel || 'N/A'}</p>
+            <p><strong>Roast Type:</strong> {selectedResume.preferences?.roastSettings?.type || selectedResume.preferences?.roastType || 'N/A'}</p>
+            <p><strong>Language:</strong> {selectedResume.preferences?.roastSettings?.language || selectedResume.preferences?.language || 'N/A'}</p>
+          </div>
+        </>
+      )}
+
+      {(selectedResume.statistics || selectedResume.resumeAnalytics) && (
+        <>
+          <h3>Document Statistics</h3>
+          <div className="stats-grid">
+            <p><strong>Word Count:</strong> {selectedResume.statistics?.wordCount || selectedResume.resumeAnalytics?.wordCount || 0}</p>
+            <p><strong>Page Count:</strong> {selectedResume.statistics?.pageCount || selectedResume.resumeAnalytics?.pageCount || 1}</p>
+            <p><strong>Section Count:</strong> {selectedResume.statistics?.sectionCount || selectedResume.resumeAnalytics?.sectionCount || 0}</p>
+            <p><strong>Bullet Points:</strong> {selectedResume.statistics?.bulletPointCount || selectedResume.resumeAnalytics?.bulletPointCount || 0}</p>
+            <p><strong>Quantifiable Achievements:</strong> {selectedResume.statistics?.quantifiableAchievements || selectedResume.resumeAnalytics?.quantifiableAchievements || 0}</p>
+            <p><strong>ATS Compatibility:</strong> {selectedResume.statistics?.atsCompatibility || selectedResume.resumeAnalytics?.atsCompatibility || 'N/A'}</p>
+          </div>
+        </>
+      )}
+
+      {selectedResume.contactValidation && (
+        <>
+          <h3>Contact Validation</h3>
+          <div className="contact-validation">
+            <p><strong>Has Email:</strong> {selectedResume.contactValidation.hasEmail ? '✅' : '❌'}</p>
+            <p><strong>Email Valid:</strong> {selectedResume.contactValidation.emailValid ? '✅' : '❌'}</p>
+            <p><strong>Has Phone:</strong> {selectedResume.contactValidation.hasPhone ? '✅' : '❌'}</p>
+            <p><strong>Phone Valid:</strong> {selectedResume.contactValidation.phoneValid ? '✅' : '❌'}</p>
+            <p><strong>Has LinkedIn:</strong> {selectedResume.contactValidation.hasLinkedIn ? '✅' : '❌'}</p>
+            <p><strong>LinkedIn Valid:</strong> {selectedResume.contactValidation.linkedInValid ? '✅' : '❌'}</p>
+            <p><strong>Has Address:</strong> {selectedResume.contactValidation.hasAddress ? '✅' : '❌'}</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   // LOGIN UI
   if (!isAuthenticated) {
@@ -349,7 +517,7 @@ const AdminPanel = () => {
                       onClick={() => handleResumeClick(resume)}
                     >
                       <div className="item-info">
-                        <h4>{resume.fileName || 'Unknown File'}</h4>
+                        <h4>{resume.displayName || resume.fileName || 'Unknown File'}</h4>
                         <p>Score: {resume.score || 0}/100</p>
                         <small>{new Date(resume.uploadedAt).toLocaleDateString()}</small>
                       </div>
@@ -383,15 +551,16 @@ const AdminPanel = () => {
                   >
                     <div className="card-header">
                       <h4 title={resume.originalFileName}>
-                        {resume.originalFileName.length > 25 
-                          ? resume.originalFileName.substring(0, 25) + '...'
-                          : resume.originalFileName
+                        {resume.displayName?.length > 25 
+                          ? resume.displayName.substring(0, 25) + '...'
+                          : resume.displayName
                         }
                       </h4>
                       <span className="score-badge">{resume.score}/100</span>
                     </div>
                     
                     <div className="card-content">
+                      <p><strong>File:</strong> {resume.originalFileName}</p>
                       <p><strong>Size:</strong> {(resume.fileSize / 1024).toFixed(1)} KB</p>
                       <p><strong>Uploaded:</strong> {new Date(resume.uploadedAt).toLocaleDateString()}</p>
                       <p><strong>Language:</strong> {resume.language}</p>
@@ -423,72 +592,7 @@ const AdminPanel = () => {
               </button>
             </div>
             <div className="modal-body">
-              <div className="resume-details">
-                <h3>Basic Information</h3>
-                <p><strong>File:</strong> {selectedResume.originalFileName || 'Unknown'}</p>
-                <p><strong>Size:</strong> {((selectedResume.fileSize || 0) / 1024).toFixed(2)} KB</p>
-                <p><strong>Uploaded:</strong> {new Date(selectedResume.uploadedAt || Date.now()).toLocaleString()}</p>
-                
-                {selectedResume.analysis && (
-                  <>
-                    <h3>Analysis Results</h3>
-                    <p><strong>Overall Score:</strong> {selectedResume.analysis.overallScore || 0}/100</p>
-                    {selectedResume.analysis.roastFeedback && (
-                      <div className="feedback-section">
-                        <h4>AI Feedback:</h4>
-                        <p>{selectedResume.analysis.roastFeedback}</p>
-                      </div>
-                    )}
-                  </>
-                )}
-                {selectedResume.extractedInfo && (
-  <>
-    <h3>Extracted Information</h3>
-    <div className="extracted-info-grid">
-      <div className="info-section">
-        <h4>👤 Personal Details</h4>
-        <p><strong>Name:</strong> {selectedResume.extractedInfo.name || 'N/A'}</p>
-        <p><strong>Email:</strong> {selectedResume.extractedInfo.email || 'N/A'}</p>
-        <p><strong>Phone:</strong> {selectedResume.extractedInfo.phone || 'N/A'}</p>
-        <p><strong>LinkedIn:</strong> {selectedResume.extractedInfo.linkedin || 'N/A'}</p>
-        <p><strong>GitHub:</strong> {selectedResume.extractedInfo.github || 'N/A'}</p>
-      </div>
-      
-      <div className="info-section">
-        <h4>💼 Professional Info</h4>
-        <p><strong>Job Title:</strong> {selectedResume.extractedInfo.jobTitle || 'N/A'}</p>
-        <p><strong>Experience Level:</strong> {selectedResume.extractedInfo.experienceLevel || 'N/A'}</p>
-        <p><strong>Total Experience:</strong> {selectedResume.extractedInfo.totalExperienceYears || 0} years</p>
-      </div>
-      
-      <div className="info-section">
-        <h4>🛠️ Skills & Education</h4>
-        <p><strong>Skills:</strong> {selectedResume.extractedInfo.skills?.length || 0} found</p>
-        <p><strong>Technical Skills:</strong> {selectedResume.extractedInfo.technicalSkills?.length || 0}</p>
-        <p><strong>Soft Skills:</strong> {selectedResume.extractedInfo.softSkills?.length || 0}</p>
-        <p><strong>Education:</strong> {selectedResume.extractedInfo.education?.length || 0} entries</p>
-        <p><strong>Experience:</strong> {selectedResume.extractedInfo.experience?.length || 0} positions</p>
-        <p><strong>Projects:</strong> {selectedResume.extractedInfo.projects?.length || 0} listed</p>
-        <p><strong>Certifications:</strong> {selectedResume.extractedInfo.certifications?.length || 0} found</p>
-      </div>
-      
-      {selectedResume.extractedInfo.skills?.length > 0 && (
-        <div className="info-section">
-          <h4>🏷️ Skills List</h4>
-          <div className="skills-tags">
-            {selectedResume.extractedInfo.skills.slice(0, 10).map((skill, index) => (
-              <span key={index} className="skill-tag">{skill}</span>
-            ))}
-            {selectedResume.extractedInfo.skills.length > 10 && (
-              <span className="skill-tag more">+{selectedResume.extractedInfo.skills.length - 10} more</span>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  </>
-)}
-              </div>
+              {renderResumeDetails()}
             </div>
           </div>
         </div>
