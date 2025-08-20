@@ -288,7 +288,6 @@ const ResultsDisplay = ({ results, onReset }) => {
   // Destructure with safe defaults
   const {
     roastFeedback = '',
-    score = 0
   } = results;
 
   return (
@@ -493,39 +492,39 @@ const ResultsDisplay = ({ results, onReset }) => {
                 <p>Actionable steps to enhance your resume</p>
               </div>
               <div className="improvements-list">
-                {validImprovements.length > 0 ? (
-                  validImprovements.map((improvement, index) => (
-                    <div key={index} className={`improvement-item priority-${improvement.priority}`}>
-                      <div className="improvement-header">
-                        <div className="improvement-priority">
-                          <span className="priority-indicator">
-                            {improvement.priority === 'high' && '🔴'}
-                            {improvement.priority === 'medium' && '🟡'}
-                            {improvement.priority === 'low' && '🟢'}
-                          </span>
-                          <span className="priority-text">
-                            {improvement.priority.charAt(0).toUpperCase() + improvement.priority.slice(1)} Priority
-                          </span>
-                        </div>
-                      </div>
-                      <div className="improvement-content">
-                        <h4 className="improvement-title">{improvement.title}</h4>
-                        <p className="improvement-description">{improvement.description}</p>
-                        {improvement.example && (
-                          <div className="improvement-example">
-                            <strong>Example:</strong> {improvement.example}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="no-content">
-                    <span className="no-content-icon">✨</span>
-                    <p>No specific improvements identified. Your resume looks good!</p>
-                  </div>
-                )}
-              </div>
+  {validImprovements.length > 0 ? (
+    validImprovements.map((improvement, index) => (
+      <div key={index} className={`improvement-item priority-${improvement.priority}`}>
+        <div className="improvement-header">
+          <div className="improvement-priority">
+            <span className="priority-indicator">
+              {improvement.priority === 'high' && '🔴'}
+              {improvement.priority === 'medium' && '🟡'}
+              {improvement.priority === 'low' && '🟢'}
+            </span>
+            <span className="priority-text">
+              {improvement.priority.charAt(0).toUpperCase() + improvement.priority.slice(1)} Priority
+            </span>
+          </div>
+        </div>
+        <div className="improvement-content">
+          <h4 className="improvement-title">{decodeHtmlEntities(improvement.title)}</h4>
+          <p className="improvement-description">{decodeHtmlEntities(improvement.description)}</p>
+          {improvement.example && (
+            <div className="improvement-example">
+              <strong>Example:</strong> {decodeHtmlEntities(improvement.example)}
+            </div>
+          )}
+        </div>
+      </div>
+    ))
+  ) : (
+    <div className="no-content">
+      <span className="no-content-icon">✨</span>
+      <p>No specific improvements identified. Your resume looks good!</p>
+    </div>
+  )}
+</div>
             </div>
           </div>
         )}
@@ -552,11 +551,11 @@ const ResultsDisplay = ({ results, onReset }) => {
                   {validStrengths.length > 0 ? (
                     <ul className="analysis-list strengths-list">
                       {validStrengths.map((strength, index) => (
-                        <li key={index} className="analysis-item">
-                          <span className="item-bullet">•</span>
-                          <span className="item-text">{strength}</span>
-                        </li>
-                      ))}
+  <li key={index} className="analysis-item">
+    <span className="item-bullet">•</span>
+    <span className="item-text">{decodeHtmlEntities(strength)}</span>
+  </li>
+))}
                     </ul>
                   ) : (
                     <div className="no-content small">
@@ -576,11 +575,11 @@ const ResultsDisplay = ({ results, onReset }) => {
                   {validWeaknesses.length > 0 ? (
                     <ul className="analysis-list weaknesses-list">
                       {validWeaknesses.map((weakness, index) => (
-                        <li key={index} className="analysis-item">
-                          <span className="item-bullet">•</span>
-                          <span className="item-text">{weakness}</span>
-                        </li>
-                      ))}
+  <li key={index} className="analysis-item">
+    <span className="item-bullet">•</span>
+    <span className="item-text">{decodeHtmlEntities(weakness)}</span>
+  </li>
+))}
                     </ul>
                   ) : (
                     <div className="no-content small">
