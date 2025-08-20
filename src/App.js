@@ -452,7 +452,7 @@ function App() {
         <Navbar />
         
         {/* Hero Section */}
-        <section className="hero">
+        <section id="home" className="hero">
           <div className="hero-background">
             <div className="hero-pattern"></div>
           </div>
@@ -489,7 +489,7 @@ function App() {
         </section>
 
         {/* Features Section */}
-        <section className="features">
+        <section id="features" className="features">
           <div className="container">
             <div className="section-header">
               <h2>Why Choose CV Slayer?</h2>
@@ -534,10 +534,6 @@ function App() {
         <section id="upload" className="upload-section">
           <div className="container">
             <div className="upload-wrapper">
-              <div className="section-header">
-                <h2>Upload Your Resume</h2>
-                <p>Get instant AI-powered feedback and roasting</p>
-              </div>
               
               {error && (
                 <div className="error-alert" role="alert">
@@ -741,10 +737,6 @@ function App() {
         {/* How It Works */}
         <section className="how-it-works">
           <div className="container">
-            <div className="section-header">
-              <h2>How It Works</h2>
-              <p>Simple process, powerful results</p>
-            </div>
             <div className="steps-grid">
               <div className="step-card">
                 <div className="step-number">1</div>
@@ -775,7 +767,7 @@ function App() {
         </section>
 
         {/* Sample Results */}
-        <section className="sample-results">
+        <section id="examples"  className="sample-results">
           <div className="container">
             <div className="section-header">
               <h2>Sample Roasts</h2>
@@ -812,7 +804,7 @@ function App() {
         </section>
 
         {/* Footer */}
-        <footer className="footer">
+        <footer id="contact" className="footer">
           <div className="container">
             <div className="footer-content">
               <div className="footer-section">
@@ -830,7 +822,7 @@ function App() {
               <div className="footer-section">
                 <h4>Contact</h4>
                 <p>outlercodie.com@gmail.com</p>
-                <p>iron-industry.tech</p>
+                <p><a href='https://iron-industry.tech'>Iron Industry</a></p>
               </div>
               <div className="footer-section">
                 <h4>Iron Industry</h4>

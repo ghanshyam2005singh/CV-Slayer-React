@@ -89,16 +89,21 @@
 /* CTA Button Style */
 .navbar-link.cta-nav {
   background:  #667eea ;
-  color: white;
+  color: white !important;
   font-weight: 600;
   box-shadow: 0 3px 12px rgba(102, 126, 234, 0.3);
 }
 
 .navbar-link.cta-nav:hover {
-  background: linear-gradient(45deg, #5a6fd8, #6b42a0);
+  background: #5a6fd8;
   box-shadow: 0 5px 16px rgba(102, 126, 234, 0.4);
   transform: translateY(-2px);
   color: white;
+}
+
+.navbar-link.cta-nav:disabled {
+  color: #fff !important;
+  opacity: 0.7;
 }
 
 /* Mobile Menu Toggle */
@@ -179,6 +184,7 @@
   .navbar-menu-active {
     left: 0;
   }
+  
 
   .navbar-item {
     width: 80%;
