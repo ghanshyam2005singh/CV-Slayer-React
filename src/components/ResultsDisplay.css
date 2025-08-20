@@ -7,6 +7,7 @@
   max-width: 900px;
   margin: 0 auto;
   padding: 40px 20px;
+  padding-top: 60px;
   background: white;
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
@@ -796,9 +797,10 @@
    ======================================== */
 
 @media (max-width: 768px) {
-  .results-container {
+   .results-container {
     margin-top: 70px;
     padding: 30px 16px;
+    padding-top: 60px;
     margin: 16px;
   }
 
@@ -875,8 +877,9 @@
 
 @media (max-width: 480px) {
   .results-container {
-    margin: 8px;
+   margin: 8px;
     padding: 24px 12px;
+    padding-top: 60px;
   }
 
   .score-circle {
