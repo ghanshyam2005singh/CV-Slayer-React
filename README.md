@@ -186,5 +186,3 @@ npm start
 > _"You said 'Hardworking', par resume banate waqt copy kiya lagta hai pura."_
 
 ---
-
-For detailed implementation guides and troubleshooting, check our [Wiki](wiki-link) or raise an [Issue](issues-link).
