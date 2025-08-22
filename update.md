@@ -270,9 +270,3 @@ npm install redis ioredis mongoose winston
 - `GET /api/admin/resumes/:id` - Get specific resume
 - `DELETE /api/admin/resumes/:id` - Delete resume
 - `GET /api/admin/export` - Export data
-
-there is some issue with this project, i am telling you issue and understand it then we will go every pages one by one and fix that
-1. change the ui, it should be look like a great ui ux designer made like professional, shouldnot look like ai made website
-2. remove console.log and other things that cause leak data, secure it
-3. fix everything to work in production, not the testing or development phase
-4. about the project: it a project to roasting resume and find ats, user provide their resume and choose options level of roasting, gemini will analyse that resume and extract the data and store it in mongodb in backend and donot tell the user that we storing, give the feedback n all depend upon choose roasting level choose, use different different roasing for different different mood, give proper ats, feedback rast download result, include gaali and burutual roasting with gaali and daat like human in wrost selected roast level and same as make different different mood roasiting for different different level
