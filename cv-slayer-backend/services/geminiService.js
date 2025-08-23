@@ -930,231 +930,231 @@ CRITICAL INSTRUCTIONS:
   }
 
   // Enhanced sanitization for comprehensive response
-  sanitizeComprehensiveResponse(response) {
-    logger.info('Sanitizing comprehensive response');
+ // Complete the sanitizeComprehensiveResponse method
+sanitizeComprehensiveResponse(response) {
+  logger.info('Sanitizing comprehensive response');
+  
+  const sanitized = {
+    roastFeedback: validator.escape(response.roastFeedback || '').substring(0, 3000),
+    score: Math.max(0, Math.min(100, Math.round(response.score || 0))),
+    strengths: (response.strengths || [])
+      .slice(0, 6)
+      .map(s => validator.escape(String(s)).substring(0, 200))
+      .filter(s => s.length > 0),
+    weaknesses: (response.weaknesses || [])
+      .slice(0, 5)
+      .map(w => validator.escape(String(w)).substring(0, 200))
+      .filter(w => w.length > 0),
+    improvements: (response.improvements || [])
+      .slice(0, 6)
+      .map(imp => ({
+        priority: ['high', 'medium', 'low'].includes(imp.priority) ? imp.priority : 'medium',
+        title: validator.escape(String(imp.title || '')).substring(0, 100),
+        description: validator.escape(String(imp.description || '')).substring(0, 400),
+        example: validator.escape(String(imp.example || '')).substring(0, 250)
+      }))
+      .filter(imp => imp.title.length > 0 && imp.description.length > 0),
     
-    const sanitized = {
-      roastFeedback: validator.escape(response.roastFeedback || '').substring(0, 3000),
-      score: Math.max(0, Math.min(100, Math.round(response.score || 0))),
-      strengths: (response.strengths || [])
-        .slice(0, 6)
-        .map(s => validator.escape(String(s)).substring(0, 200))
-        .filter(s => s.length > 0),
-      weaknesses: (response.weaknesses || [])
-        .slice(0, 5)
-        .map(w => validator.escape(String(w)).substring(0, 200))
-        .filter(w => w.length > 0),
-      improvements: (response.improvements || [])
-        .slice(0, 6)
-        .map(imp => ({
-          priority: ['high', 'medium', 'low'].includes(imp.priority) ? imp.priority : 'medium',
-          title: validator.escape(String(imp.title || '')).substring(0, 100),
-          description: validator.escape(String(imp.description || '')).substring(0, 400),
-          example: validator.escape(String(imp.example || '')).substring(0, 250)
-        }))
-        .filter(imp => imp.title.length > 0 && imp.description.length > 0),
-      
-      // Comprehensive extracted information
-      extractedInfo: this.sanitizeExtractedInfo(response.extractedInfo || {}),
-      
-      // Resume analytics
-      resumeAnalytics: this.sanitizeResumeAnalytics(response.resumeAnalytics || {}),
-      
-      // Contact validation
-      contactValidation: this.sanitizeContactValidation(response.contactValidation || {})
-    };
+    // FIXED: Add proper extractedInfo sanitization
+    extractedInfo: this.sanitizeExtractedInfo(response.extractedInfo || {}),
+    
+    // FIXED: Add proper analytics sanitization
+    resumeAnalytics: this.sanitizeResumeAnalytics(response.resumeAnalytics || {}),
+    
+    // FIXED: Add contact validation sanitization
+    contactValidation: this.sanitizeContactValidation(response.contactValidation || {})
+  };
 
-    logger.info('Response sanitization completed', {
-      strengthsCount: sanitized.strengths.length,
-      weaknessesCount: sanitized.weaknesses.length,
-      improvementsCount: sanitized.improvements.length,
-      score: sanitized.score
-    });
+  logger.info('Response sanitization completed', {
+    hasExtractedInfo: !!sanitized.extractedInfo,
+    hasAnalytics: !!sanitized.resumeAnalytics,
+    score: sanitized.score
+  });
 
-    return sanitized;
+  return sanitized;
+}
+
+// FIXED: Add the missing sanitization methods
+sanitizeExtractedInfo(extractedInfo) {
+  if (!extractedInfo || typeof extractedInfo !== 'object') {
+    return {};
   }
 
-  // Enhanced extraction sanitization (keeping the same structure but adding logging)
-  sanitizeExtractedInfo(extractedInfo) {
-    logger.info('Sanitizing extracted info');
+  return {
+    personalInfo: {
+      name: extractedInfo.personalInfo?.name ? 
+        validator.escape(String(extractedInfo.personalInfo.name)).substring(0, 100) : null,
+      email: extractedInfo.personalInfo?.email ? 
+        validator.normalizeEmail(String(extractedInfo.personalInfo.email)) || null : null,
+      phone: extractedInfo.personalInfo?.phone ? 
+        validator.escape(String(extractedInfo.personalInfo.phone)).substring(0, 25) : null,
+      address: {
+        full: extractedInfo.personalInfo?.address?.full ? 
+          validator.escape(String(extractedInfo.personalInfo.address.full)).substring(0, 300) : null,
+        city: extractedInfo.personalInfo?.address?.city ? 
+          validator.escape(String(extractedInfo.personalInfo.address.city)).substring(0, 100) : null,
+        state: extractedInfo.personalInfo?.address?.state ? 
+          validator.escape(String(extractedInfo.personalInfo.address.state)).substring(0, 100) : null,
+        country: extractedInfo.personalInfo?.address?.country ? 
+          validator.escape(String(extractedInfo.personalInfo.address.country)).substring(0, 100) : null,
+        zipCode: extractedInfo.personalInfo?.address?.zipCode ? 
+          validator.escape(String(extractedInfo.personalInfo.address.zipCode)).substring(0, 20) : null
+      },
+      socialProfiles: {
+        linkedin: extractedInfo.personalInfo?.socialProfiles?.linkedin ? 
+          validator.escape(String(extractedInfo.personalInfo.socialProfiles.linkedin)).substring(0, 200) : null,
+        github: extractedInfo.personalInfo?.socialProfiles?.github ? 
+          validator.escape(String(extractedInfo.personalInfo.socialProfiles.github)).substring(0, 200) : null,
+        portfolio: extractedInfo.personalInfo?.socialProfiles?.portfolio ? 
+          validator.escape(String(extractedInfo.personalInfo.socialProfiles.portfolio)).substring(0, 200) : null,
+        website: extractedInfo.personalInfo?.socialProfiles?.website ? 
+          validator.escape(String(extractedInfo.personalInfo.socialProfiles.website)).substring(0, 200) : null,
+        twitter: extractedInfo.personalInfo?.socialProfiles?.twitter ? 
+          validator.escape(String(extractedInfo.personalInfo.socialProfiles.twitter)).substring(0, 200) : null
+      }
+    },
     
-    return {
-      personalInfo: {
-        name: extractedInfo.personalInfo?.name ? 
-          validator.escape(String(extractedInfo.personalInfo.name)).substring(0, 100) : null,
-        email: extractedInfo.personalInfo?.email ? 
-          validator.normalizeEmail(String(extractedInfo.personalInfo.email)) || null : null,
-        phone: extractedInfo.personalInfo?.phone ? 
-          validator.escape(String(extractedInfo.personalInfo.phone)).substring(0, 25) : null,
-        address: {
-          full: extractedInfo.personalInfo?.address?.full ? 
-            validator.escape(String(extractedInfo.personalInfo.address.full)).substring(0, 300) : null,
-          city: extractedInfo.personalInfo?.address?.city ? 
-            validator.escape(String(extractedInfo.personalInfo.address.city)).substring(0, 100) : null,
-          state: extractedInfo.personalInfo?.address?.state ? 
-            validator.escape(String(extractedInfo.personalInfo.address.state)).substring(0, 100) : null,
-          country: extractedInfo.personalInfo?.address?.country ? 
-            validator.escape(String(extractedInfo.personalInfo.address.country)).substring(0, 100) : null,
-          zipCode: extractedInfo.personalInfo?.address?.zipCode ? 
-            validator.escape(String(extractedInfo.personalInfo.address.zipCode)).substring(0, 20) : null
-        },
-        socialProfiles: {
-          linkedin: extractedInfo.personalInfo?.socialProfiles?.linkedin ? 
-            validator.escape(String(extractedInfo.personalInfo.socialProfiles.linkedin)).substring(0, 200) : null,
-          github: extractedInfo.personalInfo?.socialProfiles?.github ? 
-            validator.escape(String(extractedInfo.personalInfo.socialProfiles.github)).substring(0, 200) : null,
-          portfolio: extractedInfo.personalInfo?.socialProfiles?.portfolio ? 
-            validator.escape(String(extractedInfo.personalInfo.socialProfiles.portfolio)).substring(0, 200) : null,
-          website: extractedInfo.personalInfo?.socialProfiles?.website ? 
-            validator.escape(String(extractedInfo.personalInfo.socialProfiles.website)).substring(0, 200) : null,
-          twitter: extractedInfo.personalInfo?.socialProfiles?.twitter ? 
-            validator.escape(String(extractedInfo.personalInfo.socialProfiles.twitter)).substring(0, 200) : null
-        }
-      },
-      
-      professionalSummary: extractedInfo.professionalSummary ? 
-        validator.escape(String(extractedInfo.professionalSummary)).substring(0, 1000) : null,
-      
-      skills: {
-        technical: (extractedInfo.skills?.technical || []).slice(0, 50).map(skill => 
-          validator.escape(String(skill)).substring(0, 50)
-        ),
-        soft: (extractedInfo.skills?.soft || []).slice(0, 20).map(skill => 
-          validator.escape(String(skill)).substring(0, 50)
-        ),
-        languages: (extractedInfo.skills?.languages || []).slice(0, 10).map(lang => 
-          validator.escape(String(lang)).substring(0, 100)
-        ),
-        tools: (extractedInfo.skills?.tools || []).slice(0, 30).map(tool => 
-          validator.escape(String(tool)).substring(0, 50)
-        ),
-        frameworks: (extractedInfo.skills?.frameworks || []).slice(0, 30).map(framework => 
-          validator.escape(String(framework)).substring(0, 50)
-        )
-      },
-      
-      experience: (extractedInfo.experience || []).slice(0, 15).map(exp => ({
-        title: exp.title ? validator.escape(String(exp.title)).substring(0, 150) : 'N/A',
-        company: exp.company ? validator.escape(String(exp.company)).substring(0, 150) : 'N/A',
-        location: exp.location ? validator.escape(String(exp.location)).substring(0, 100) : null,
-        startDate: exp.startDate ? validator.escape(String(exp.startDate)).substring(0, 50) : null,
-        endDate: exp.endDate ? validator.escape(String(exp.endDate)).substring(0, 50) : null,
-        duration: exp.duration ? validator.escape(String(exp.duration)).substring(0, 50) : null,
-        description: exp.description ? validator.escape(String(exp.description)).substring(0, 1000) : null,
-        achievements: (exp.achievements || []).slice(0, 10).map(achievement => 
-          validator.escape(String(achievement)).substring(0, 300)
-        ),
-        technologies: (exp.technologies || []).slice(0, 20).map(tech => 
-          validator.escape(String(tech)).substring(0, 50)
-        )
-      })),
-      
-      education: (extractedInfo.education || []).slice(0, 10).map(edu => ({
-        degree: edu.degree ? validator.escape(String(edu.degree)).substring(0, 150) : 'N/A',
-        field: edu.field ? validator.escape(String(edu.field)).substring(0, 150) : null,
-        institution: edu.institution ? validator.escape(String(edu.institution)).substring(0, 200) : 'N/A',
-        location: edu.location ? validator.escape(String(edu.location)).substring(0, 100) : null,
-        graduationYear: edu.graduationYear ? validator.escape(String(edu.graduationYear)).substring(0, 10) : null,
-        gpa: edu.gpa ? validator.escape(String(edu.gpa)).substring(0, 10) : null,
-        honors: (edu.honors || []).slice(0, 5).map(honor => 
-          validator.escape(String(honor)).substring(0, 200)
-        ),
-        coursework: (edu.coursework || []).slice(0, 10).map(course => 
-          validator.escape(String(course)).substring(0, 150)
-        )
-      })),
-      
-      certifications: (extractedInfo.certifications || []).slice(0, 20).map(cert => ({
-        name: cert.name ? validator.escape(String(cert.name)).substring(0, 200) : 'N/A',
-        issuer: cert.issuer ? validator.escape(String(cert.issuer)).substring(0, 150) : 'N/A',
-        dateObtained: cert.dateObtained ? validator.escape(String(cert.dateObtained)).substring(0, 50) : null,
-        expirationDate: cert.expirationDate ? validator.escape(String(cert.expirationDate)).substring(0, 50) : null,
-        credentialId: cert.credentialId ? validator.escape(String(cert.credentialId)).substring(0, 100) : null,
-        url: cert.url ? validator.escape(String(cert.url)).substring(0, 300) : null
-      })),
-      
-      projects: (extractedInfo.projects || []).slice(0, 15).map(proj => ({
-        name: proj.name ? validator.escape(String(proj.name)).substring(0, 150) : 'N/A',
-        description: proj.description ? validator.escape(String(proj.description)).substring(0, 800) : null,
-        role: proj.role ? validator.escape(String(proj.role)).substring(0, 150) : null,
-        duration: proj.duration ? validator.escape(String(proj.duration)).substring(0, 50) : null,
-        technologies: (proj.technologies || []).slice(0, 20).map(tech => 
-          validator.escape(String(tech)).substring(0, 50)
-        ),
-        achievements: (proj.achievements || []).slice(0, 5).map(achievement => 
-          validator.escape(String(achievement)).substring(0, 300)
-        ),
-        url: proj.url ? validator.escape(String(proj.url)).substring(0, 300) : null,
-        github: proj.github ? validator.escape(String(proj.github)).substring(0, 300) : null
-      })),
-      
-      awards: (extractedInfo.awards || []).slice(0, 10).map(award => ({
-        title: award.title ? validator.escape(String(award.title)).substring(0, 200) : 'N/A',
-        issuer: award.issuer ? validator.escape(String(award.issuer)).substring(0, 150) : null,
-        date: award.date ? validator.escape(String(award.date)).substring(0, 50) : null,
-        description: award.description ? validator.escape(String(award.description)).substring(0, 500) : null
-      })),
-      
-      publications: (extractedInfo.publications || []).slice(0, 10).map(pub => ({
-        title: pub.title ? validator.escape(String(pub.title)).substring(0, 300) : 'N/A',
-        type: pub.type ? validator.escape(String(pub.type)).substring(0, 100) : null,
-        date: pub.date ? validator.escape(String(pub.date)).substring(0, 50) : null,
-        description: pub.description ? validator.escape(String(pub.description)).substring(0, 500) : null,
-        url: pub.url ? validator.escape(String(pub.url)).substring(0, 300) : null
-      })),
-      
-      volunteerWork: (extractedInfo.volunteerWork || []).slice(0, 10).map(vol => ({
-        organization: vol.organization ? validator.escape(String(vol.organization)).substring(0, 200) : 'N/A',
-        role: vol.role ? validator.escape(String(vol.role)).substring(0, 150) : null,
-        duration: vol.duration ? validator.escape(String(vol.duration)).substring(0, 50) : null,
-        description: vol.description ? validator.escape(String(vol.description)).substring(0, 500) : null
-      })),
-      
-      interests: (extractedInfo.interests || []).slice(0, 20).map(interest => 
-        validator.escape(String(interest)).substring(0, 100)
+    professionalSummary: extractedInfo.professionalSummary ? 
+      validator.escape(String(extractedInfo.professionalSummary)).substring(0, 1000) : null,
+    
+    skills: {
+      technical: (extractedInfo.skills?.technical || []).slice(0, 50).map(skill => 
+        validator.escape(String(skill)).substring(0, 50)
       ),
-      
-      references: extractedInfo.references ? 
-        validator.escape(String(extractedInfo.references)).substring(0, 200) : null
-    };
-  }
-
-  // Sanitize resume analytics
-  sanitizeResumeAnalytics(analytics) {
-    return {
-      wordCount: Math.max(0, parseInt(analytics.wordCount) || 0),
-      pageCount: Math.max(1, parseInt(analytics.pageCount) || 1),
-      sectionCount: Math.max(0, parseInt(analytics.sectionCount) || 0),
-      bulletPointCount: Math.max(0, parseInt(analytics.bulletPointCount) || 0),
-      quantifiableAchievements: Math.max(0, parseInt(analytics.quantifiableAchievements) || 0),
-      actionVerbsUsed: Math.max(0, parseInt(analytics.actionVerbsUsed) || 0),
-      industryKeywords: (analytics.industryKeywords || []).slice(0, 50).map(keyword => 
-        validator.escape(String(keyword)).substring(0, 50)
+      soft: (extractedInfo.skills?.soft || []).slice(0, 20).map(skill => 
+        validator.escape(String(skill)).substring(0, 50)
       ),
-      readabilityScore: Math.max(0, Math.min(100, parseInt(analytics.readabilityScore) || 0)),
-      atsCompatibility: ['High', 'Medium', 'Low'].includes(analytics.atsCompatibility) ? 
-        analytics.atsCompatibility : 'Medium',
-      missingElements: (analytics.missingElements || []).slice(0, 10).map(element => 
-        validator.escape(String(element)).substring(0, 100)
+      languages: (extractedInfo.skills?.languages || []).slice(0, 10).map(lang => 
+        validator.escape(String(lang)).substring(0, 100)
       ),
-      strongElements: (analytics.strongElements || []).slice(0, 10).map(element => 
-        validator.escape(String(element)).substring(0, 100)
+      tools: (extractedInfo.skills?.tools || []).slice(0, 30).map(tool => 
+        validator.escape(String(tool)).substring(0, 50)
+      ),
+      frameworks: (extractedInfo.skills?.frameworks || []).slice(0, 30).map(framework => 
+        validator.escape(String(framework)).substring(0, 50)
       )
-    };
+    },
+    
+    experience: (extractedInfo.experience || []).slice(0, 15).map(exp => ({
+      title: exp.title ? validator.escape(String(exp.title)).substring(0, 150) : null,
+      company: exp.company ? validator.escape(String(exp.company)).substring(0, 150) : null,
+      location: exp.location ? validator.escape(String(exp.location)).substring(0, 100) : null,
+      startDate: exp.startDate ? validator.escape(String(exp.startDate)).substring(0, 50) : null,
+      endDate: exp.endDate ? validator.escape(String(exp.endDate)).substring(0, 50) : null,
+      duration: exp.duration ? validator.escape(String(exp.duration)).substring(0, 50) : null,
+      description: exp.description ? validator.escape(String(exp.description)).substring(0, 1000) : null,
+      achievements: (exp.achievements || []).slice(0, 10).map(achievement => 
+        validator.escape(String(achievement)).substring(0, 300)
+      ),
+      technologies: (exp.technologies || []).slice(0, 20).map(tech => 
+        validator.escape(String(tech)).substring(0, 50)
+      )
+    })),
+    
+    education: (extractedInfo.education || []).slice(0, 10).map(edu => ({
+      degree: edu.degree ? validator.escape(String(edu.degree)).substring(0, 150) : null,
+      field: edu.field ? validator.escape(String(edu.field)).substring(0, 150) : null,
+      institution: edu.institution ? validator.escape(String(edu.institution)).substring(0, 200) : null,
+      location: edu.location ? validator.escape(String(edu.location)).substring(0, 100) : null,
+      graduationYear: edu.graduationYear ? validator.escape(String(edu.graduationYear)).substring(0, 10) : null,
+      gpa: edu.gpa ? validator.escape(String(edu.gpa)).substring(0, 10) : null,
+      honors: (edu.honors || []).slice(0, 5).map(honor => 
+        validator.escape(String(honor)).substring(0, 200)
+      ),
+      coursework: (edu.coursework || []).slice(0, 10).map(course => 
+        validator.escape(String(course)).substring(0, 150)
+      )
+    })),
+    
+    certifications: (extractedInfo.certifications || []).slice(0, 20).map(cert => ({
+      name: cert.name ? validator.escape(String(cert.name)).substring(0, 200) : null,
+      issuer: cert.issuer ? validator.escape(String(cert.issuer)).substring(0, 150) : null,
+      dateObtained: cert.dateObtained ? validator.escape(String(cert.dateObtained)).substring(0, 50) : null,
+      expirationDate: cert.expirationDate ? validator.escape(String(cert.expirationDate)).substring(0, 50) : null,
+      credentialId: cert.credentialId ? validator.escape(String(cert.credentialId)).substring(0, 100) : null,
+      url: cert.url ? validator.escape(String(cert.url)).substring(0, 300) : null
+    })),
+    
+    projects: (extractedInfo.projects || []).slice(0, 15).map(proj => ({
+      name: proj.name ? validator.escape(String(proj.name)).substring(0, 150) : null,
+      description: proj.description ? validator.escape(String(proj.description)).substring(0, 800) : null,
+      role: proj.role ? validator.escape(String(proj.role)).substring(0, 150) : null,
+      duration: proj.duration ? validator.escape(String(proj.duration)).substring(0, 50) : null,
+      technologies: (proj.technologies || []).slice(0, 20).map(tech => 
+        validator.escape(String(tech)).substring(0, 50)
+      ),
+      achievements: (proj.achievements || []).slice(0, 5).map(achievement => 
+        validator.escape(String(achievement)).substring(0, 300)
+      ),
+      url: proj.url ? validator.escape(String(proj.url)).substring(0, 300) : null,
+      github: proj.github ? validator.escape(String(proj.github)).substring(0, 300) : null
+    })),
+    
+    awards: (extractedInfo.awards || []).slice(0, 10).map(award => ({
+      title: award.title ? validator.escape(String(award.title)).substring(0, 200) : null,
+      issuer: award.issuer ? validator.escape(String(award.issuer)).substring(0, 150) : null,
+      date: award.date ? validator.escape(String(award.date)).substring(0, 50) : null,
+      description: award.description ? validator.escape(String(award.description)).substring(0, 500) : null
+    })),
+    
+    volunteerWork: (extractedInfo.volunteerWork || []).slice(0, 10).map(vol => ({
+      organization: vol.organization ? validator.escape(String(vol.organization)).substring(0, 200) : null,
+      role: vol.role ? validator.escape(String(vol.role)).substring(0, 150) : null,
+      duration: vol.duration ? validator.escape(String(vol.duration)).substring(0, 50) : null,
+      description: vol.description ? validator.escape(String(vol.description)).substring(0, 500) : null
+    })),
+    
+    interests: (extractedInfo.interests || []).slice(0, 20).map(interest => 
+      validator.escape(String(interest)).substring(0, 100)
+    ),
+    
+    references: extractedInfo.references ? 
+      validator.escape(String(extractedInfo.references)).substring(0, 200) : null
+  };
+}
+
+sanitizeResumeAnalytics(analytics) {
+  if (!analytics || typeof analytics !== 'object') {
+    return {};
   }
 
-  // Sanitize contact validation
-  sanitizeContactValidation(validation) {
-    return {
-      hasEmail: Boolean(validation.hasEmail),
-      hasPhone: Boolean(validation.hasPhone),
-      hasLinkedIn: Boolean(validation.hasLinkedIn),
-      hasAddress: Boolean(validation.hasAddress),
-      emailValid: Boolean(validation.emailValid),
-      phoneValid: Boolean(validation.phoneValid),
-      linkedInValid: Boolean(validation.linkedInValid)
-    };
+  return {
+    wordCount: Math.max(0, parseInt(analytics.wordCount) || 0),
+    pageCount: Math.max(1, parseInt(analytics.pageCount) || 1),
+    sectionCount: Math.max(0, parseInt(analytics.sectionCount) || 0),
+    bulletPointCount: Math.max(0, parseInt(analytics.bulletPointCount) || 0),
+    quantifiableAchievements: Math.max(0, parseInt(analytics.quantifiableAchievements) || 0),
+    actionVerbsUsed: Math.max(0, parseInt(analytics.actionVerbsUsed) || 0),
+    industryKeywords: (analytics.industryKeywords || []).slice(0, 50).map(keyword => 
+      validator.escape(String(keyword)).substring(0, 50)
+    ),
+    readabilityScore: Math.max(0, Math.min(100, parseInt(analytics.readabilityScore) || 0)),
+    atsCompatibility: ['High', 'Medium', 'Low'].includes(analytics.atsCompatibility) ? 
+      analytics.atsCompatibility : 'Medium',
+    missingElements: (analytics.missingElements || []).slice(0, 10).map(element => 
+      validator.escape(String(element)).substring(0, 100)
+    ),
+    strongElements: (analytics.strongElements || []).slice(0, 10).map(element => 
+      validator.escape(String(element)).substring(0, 100)
+    )
+  };
+}
+
+sanitizeContactValidation(validation) {
+  if (!validation || typeof validation !== 'object') {
+    return {};
   }
+
+  return {
+    hasEmail: Boolean(validation.hasEmail),
+    hasPhone: Boolean(validation.hasPhone),
+    hasLinkedIn: Boolean(validation.hasLinkedIn),
+    hasAddress: Boolean(validation.hasAddress),
+    emailValid: Boolean(validation.emailValid),
+    phoneValid: Boolean(validation.phoneValid),
+    linkedInValid: Boolean(validation.linkedInValid)
+  };
+}
 
   isRetryableError(error) {
     const retryableErrors = [
