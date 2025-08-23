@@ -240,7 +240,7 @@ class FileProcessor {
         throw new Error('NO_TEXT_CONTENT');
       }
 
-      const cleanedText = extractedText.trim();
+      const cleanedText = this.cleanExtractedText(extractedText);
       
       if (cleanedText.length === 0) {
         logger.warn('Empty text extracted from file', {
@@ -294,8 +294,7 @@ class FileProcessor {
         extractionId,
         fileName: file?.originalname?.substring(0, 30) || 'unknown',
         error: error.message,
-        processingTime,
-        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+        processingTime
       });
       
       // Map errors to user-friendly messages
@@ -387,8 +386,7 @@ class FileProcessor {
     } catch (error) {
       logger.error('PDF extraction error', {
         extractionId,
-        error: error.message,
-        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+        error: error.message
       });
       
       if (error.message.includes('Invalid PDF') || error.message.includes('PDF header')) {
@@ -441,15 +439,6 @@ class FileProcessor {
         throw new Error('DOCX_EMPTY_CONTENT');
       }
 
-      // Log any conversion warnings (but don't fail)
-      if (result.messages && result.messages.length > 0) {
-        logger.info('DOCX conversion warnings', {
-          extractionId,
-          warningCount: result.messages.length,
-          warnings: result.messages.map(m => m.message).slice(0, 5) // Log first 5 warnings
-        });
-      }
-
       logger.info('DOCX extraction successful', {
         extractionId,
         textLength: text.length,
@@ -460,8 +449,7 @@ class FileProcessor {
     } catch (error) {
       logger.error('DOCX extraction error', {
         extractionId,
-        error: error.message,
-        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+        error: error.message
       });
       
       if (error.message.includes('not a valid') || error.message.includes('End of central directory')) {
@@ -523,8 +511,7 @@ class FileProcessor {
     } catch (error) {
       logger.error('DOC extraction error', {
         extractionId,
-        error: error.message,
-        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+        error: error.message
       });
       
       if (error.message.includes('DOC_NO_TEXT_CONTENT') || error.message.includes('DOC_EMPTY_CONTENT')) {
@@ -560,6 +547,37 @@ class FileProcessor {
     }
   }
 
+  cleanExtractedText(text) {
+    try {
+      if (!text || typeof text !== 'string') {
+        return '';
+      }
+
+      // Clean and normalize text
+      let cleanedText = text
+        // Normalize line breaks
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        // Remove excessive whitespace
+        .replace(/[ \t]+/g, ' ')
+        // Remove excessive line breaks
+        .replace(/\n{3,}/g, '\n\n')
+        // Remove non-printable characters except newlines
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+        // Trim each line
+        .split('\n')
+        .map(line => line.trim())
+        .join('\n')
+        // Final trim
+        .trim();
+
+      return cleanedText;
+    } catch (error) {
+      logger.error('Text cleaning error', { error: error.message });
+      return text; // Return original text if cleaning fails
+    }
+  }
+
   getFileInfo(file) {
     const processingId = crypto.randomUUID().substring(0, 8);
     
@@ -578,20 +596,9 @@ class FileProcessor {
         supportedFormats: this.supportedTypes
       };
 
-      logger.info('File info generated', {
-        processingId,
-        fileName: info.name.substring(0, 30),
-        fileSize: info.size,
-        isSupported: info.isSupported,
-        withinLimits: info.withinSizeLimit
-      });
-
       return info;
     } catch (error) {
-      logger.error('Get file info error', {
-        processingId,
-        error: error.message
-      });
+      logger.error('Get file info error', { error: error.message });
       
       return {
         processingId,
