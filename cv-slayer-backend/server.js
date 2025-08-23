@@ -150,6 +150,8 @@ try {
   logger.info('Resume routes loaded successfully');
 } catch (error) {
   logger.error('Failed to load resume routes', { error: error.message });
+  // Exit if resume routes fail to load since they're critical
+  process.exit(1);
 }
 
 try {
@@ -157,14 +159,21 @@ try {
   logger.info('Admin routes loaded successfully');
 } catch (error) {
   logger.error('Failed to load admin routes', { error: error.message });
+  // Admin routes are less critical, so we can continue
 }
 
-// API Routes
+// API Routes - Make sure these are properly mounted
 if (resumeRoutes) {
   app.use('/api/resume', resumeRoutes);
+  logger.info('Resume routes mounted at /api/resume');
+} else {
+  logger.error('Resume routes not available - server cannot function properly');
+  process.exit(1);
 }
+
 if (adminRoutes) {
   app.use('/api/admin', adminRoutes);
+  logger.info('Admin routes mounted at /api/admin');
 }
 
 // Health check endpoint (production-safe)
