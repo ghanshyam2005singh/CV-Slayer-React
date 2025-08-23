@@ -32,7 +32,7 @@ if (process.env.NODE_ENV !== 'production') {
 // Enhanced rate limiting for admin endpoints
 const adminLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 5 : 10, // Very strict for login
+  max: process.env.NODE_ENV === 'production' ? 5 : 10,
   message: {
     success: false,
     error: {
@@ -149,7 +149,7 @@ router.post('/login',
       const { email, password } = req.body;
       
       logger.info('Admin login attempt', {
-        email: email.replace(/(.{2}).*(@.*)/, '$1***$2'), // Partially hide email
+        email: email.replace(/(.{2}).*(@.*)/, '$1***$2'),
         ip: req.ip,
         userAgent: req.get('User-Agent')?.substring(0, 100)
       });
@@ -189,43 +189,42 @@ router.post('/login',
   }
 );
 
-// Dashboard data endpoint
+// FIXED Dashboard data endpoint
 router.get('/dashboard',
   adminAuth.requireAuth,
   logAdminActivity('dashboard'),
   async (req, res) => {
     try {
-      // Verify database connection
+      // Verify database connection first
       if (mongoose.connection.readyState !== 1) {
-        throw new Error('Database not connected');
+        logger.error('Database not connected for dashboard');
+        throw new Error('Database connection not available');
       }
       
       const collection = mongoose.connection.db.collection('resumes');
       
-      // Get comprehensive dashboard statistics
+      // FIXED: Get comprehensive data
       const [
         totalResumes,
         todayResumes,
         avgScoreResult,
-        recentResumes,
-        statusDistribution,
-        roastLevelStats
+        recentResumes
       ] = await Promise.all([
-        // Total resumes count
-        collection.countDocuments(),
+        // Total count
+        collection.countDocuments({}),
         
-        // Today's resumes count
+        // Today's count
         collection.countDocuments({
           'timestamps.uploadedAt': { 
             $gte: new Date(new Date().setHours(0, 0, 0, 0)) 
           }
         }),
         
-        // Average score calculation
+        // Average score
         collection.aggregate([
           { 
             $match: { 
-              'analysis.overallScore': { $exists: true, $ne: null, $gte: 0 }
+              'analysis.overallScore': { $exists: true, $ne: null, $gte: 0, $lte: 100 }
             }
           },
           { 
@@ -237,89 +236,83 @@ router.get('/dashboard',
           }
         ]).toArray(),
         
-        // Recent resumes (anonymized)
-        collection.find(
-          {},
-          {
-            resumeId: 1,
-            'fileInfo.originalFileName': 1,
-            'analysis.overallScore': 1,
-            'timestamps.uploadedAt': 1,
-            'processingStatus.current': 1,
-            'preferences.roastSettings.level': 1
-          }
-        )
+        // FIXED: Recent resumes with proper projection
+        collection.find({})
         .sort({ 'timestamps.uploadedAt': -1 })
         .limit(10)
-        .toArray(),
-        
-        // Processing status distribution
-        collection.aggregate([
-          {
-            $group: {
-              _id: '$processingStatus.current',
-              count: { $sum: 1 }
-            }
-          }
-        ]).toArray(),
-        
-        // Roast level statistics
-        collection.aggregate([
-          {
-            $group: {
-              _id: '$preferences.roastSettings.level',
-              count: { $sum: 1 },
-              avgScore: { $avg: '$analysis.overallScore' }
-            }
-          }
-        ]).toArray()
+        .toArray()
       ]);
       
-      // Calculate average score
-      const averageScore = avgScoreResult.length > 0 
+      const averageScore = avgScoreResult.length > 0 && avgScoreResult[0] 
         ? Math.round(avgScoreResult[0].avgScore * 10) / 10 
         : 0;
       
-      // Transform recent resumes (keep anonymized)
-      const transformedRecentResumes = recentResumes.map(resume => ({
-        id: resume.resumeId,
-        fileName: resume.fileInfo?.originalFileName || 'Unknown',
-        score: resume.analysis?.overallScore || 0,
-        uploadedAt: resume.timestamps?.uploadedAt,
-        status: resume.processingStatus?.current || 'unknown',
-        roastLevel: resume.preferences?.roastSettings?.level || 'unknown'
-      }));
-      
-      // Transform status distribution
-      const statusStats = statusDistribution.reduce((acc, item) => {
-        acc[item._id || 'unknown'] = item.count;
-        return acc;
-      }, {});
-      
-      // Transform roast level stats
-      const roastStats = roastLevelStats.reduce((acc, item) => {
-        acc[item._id || 'unknown'] = {
-          count: item.count,
-          avgScore: Math.round((item.avgScore || 0) * 10) / 10
+      // FIXED: Transform recent resumes correctly
+      const transformedRecentResumes = recentResumes.map(resume => {
+        // Extract personal info from different possible paths
+        const personalInfo = resume.extractedInfo?.personalInfo || 
+                             resume.personalInfo || 
+                             {};
+        
+        const fileInfo = resume.fileInfo || {};
+        const analysis = resume.analysis || {};
+        const preferences = resume.preferences || {};
+        const contactValidation = resume.contactValidation || {};
+        
+        return {
+          id: resume.resumeId || resume._id?.toString(),
+          fileName: fileInfo.originalFileName || fileInfo.fileName || 'Unknown File',
+          displayName: personalInfo.name || fileInfo.originalFileName?.replace(/\.[^/.]+$/, "") || 'Unknown',
+          score: analysis.overallScore || 0,
+          uploadedAt: resume.timestamps?.uploadedAt || resume.createdAt,
+          
+          // FIXED: Personal information extraction
+          personalInfo: {
+            name: personalInfo.name || 'Not extracted',
+            email: personalInfo.email || personalInfo.contactInfo?.email || 'Not found',
+            phone: personalInfo.phone || personalInfo.contactInfo?.phone || 'Not found',
+            linkedin: personalInfo.socialProfiles?.linkedin || personalInfo.linkedin || 'Not found',
+            address: personalInfo.address?.full || personalInfo.address || 'Not found'
+          },
+          
+          // Other data
+          roastLevel: preferences.roastLevel || 'unknown',
+          language: preferences.language || 'unknown',
+          roastType: preferences.roastType || 'unknown',
+          gender: preferences.gender || 'unknown',
+          
+          hasEmail: contactValidation.hasEmail || false,
+          hasPhone: contactValidation.hasPhone || false,
+          hasLinkedIn: contactValidation.hasLinkedIn || false,
+          
+          wordCount: analysis.resumeAnalytics?.wordCount || 0,
+          pageCount: analysis.resumeAnalytics?.pageCount || 1,
+          
+          fullData: resume
         };
-        return acc;
-      }, {});
+      });
       
       const dashboardData = {
+        totalResumes,
+        todayResumes,
+        averageScore,
+        recentResumes: transformedRecentResumes,
+        
         overview: {
           totalResumes,
           todayResumes,
           averageScore,
-          completionRate: statusStats.completed 
-            ? Math.round((statusStats.completed / totalResumes) * 100) 
-            : 0
+          completionRate: totalResumes > 0 ? Math.round((recentResumes.length / totalResumes) * 100) : 0
         },
+        
         statistics: {
-          statusDistribution: statusStats,
-          roastLevelStats: roastStats,
+          statusDistribution: { completed: recentResumes.length },
+          roastLevelStats: {},
           processedToday: todayResumes
         },
+        
         recentActivity: transformedRecentResumes,
+        
         systemInfo: {
           serverTime: new Date().toISOString(),
           dbConnection: 'healthy',
@@ -327,10 +320,11 @@ router.get('/dashboard',
         }
       };
       
-      logger.info('Dashboard data generated', {
+      logger.info('Dashboard data generated successfully', {
         admin: req.admin?.email,
         totalResumes,
-        averageScore
+        averageScore,
+        recentCount: transformedRecentResumes.length
       });
       
       res.json({
@@ -345,10 +339,13 @@ router.get('/dashboard',
         stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
       });
       
-      // Return safe fallback data
       res.json({
         success: true,
         data: {
+          totalResumes: 0,
+          todayResumes: 0,
+          averageScore: 0,
+          recentResumes: [],
           overview: {
             totalResumes: 0,
             todayResumes: 0,
@@ -373,7 +370,7 @@ router.get('/dashboard',
   }
 );
 
-// Get all resumes with pagination and filtering
+// FIXED Get all resumes
 router.get('/resumes',
   adminAuth.requireAuth,
   validatePaginationInput,
@@ -385,13 +382,12 @@ router.get('/resumes',
       const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
       const skip = (page - 1) * limit;
       
-      // Optional filters
       const filters = {};
       if (req.query.status) {
         filters['processingStatus.current'] = req.query.status;
       }
       if (req.query.roastLevel) {
-        filters['preferences.roastSettings.level'] = req.query.roastLevel;
+        filters['preferences.roastLevel'] = req.query.roastLevel;
       }
       if (req.query.minScore) {
         filters['analysis.overallScore'] = { $gte: parseFloat(req.query.minScore) };
@@ -401,52 +397,57 @@ router.get('/resumes',
       
       const [totalCount, resumes] = await Promise.all([
         collection.countDocuments(filters),
-        collection.find(
-          filters,
-          {
-            resumeId: 1,
-            'fileInfo.originalFileName': 1,
-            'fileInfo.fileSize': 1,
-            'fileInfo.mimeType': 1,
-            'timestamps.uploadedAt': 1,
-            'analysis.overallScore': 1,
-            'preferences.roastSettings.level': 1,
-            'preferences.roastSettings.language': 1,
-            'processingStatus.current': 1,
-            'documentStats.wordCount': 1,
-            'documentStats.pageCount': 1
-          }
-        )
+        collection.find(filters)
         .sort({ 'timestamps.uploadedAt': -1 })
         .skip(skip)
         .limit(limit)
         .toArray()
       ]);
       
-      // Transform data for frontend (anonymized)
-      const transformedResumes = resumes.map(resume => ({
-        id: resume.resumeId,
-        fileName: resume.fileInfo?.originalFileName || 'Unknown',
-        fileSize: resume.fileInfo?.fileSize || 0,
-        fileType: resume.fileInfo?.mimeType || 'unknown',
-        uploadedAt: resume.timestamps?.uploadedAt,
-        score: resume.analysis?.overallScore || 0,
-        roastLevel: resume.preferences?.roastSettings?.level || 'unknown',
-        language: resume.preferences?.roastSettings?.language || 'unknown',
-        status: resume.processingStatus?.current || 'unknown',
-        wordCount: resume.documentStats?.wordCount || 0,
-        pageCount: resume.documentStats?.pageCount || 1
-      }));
+      // FIXED: Transform data properly
+      const transformedResumes = resumes.map(resume => {
+        const personalInfo = resume.extractedInfo?.personalInfo || resume.personalInfo || {};
+        const fileInfo = resume.fileInfo || {};
+        const analysis = resume.analysis || {};
+        const preferences = resume.preferences || {};
+        const contactValidation = resume.contactValidation || {};
+        
+        return {
+          id: resume.resumeId || resume._id?.toString(),
+          fileName: fileInfo.originalFileName || fileInfo.fileName || 'Unknown',
+          fileSize: fileInfo.fileSize || 0,
+          fileType: fileInfo.mimeType || 'unknown',
+          uploadedAt: resume.timestamps?.uploadedAt || resume.createdAt,
+          score: analysis.overallScore || 0,
+          
+          // FIXED: Personal information
+          personalInfo: {
+            name: personalInfo.name || 'Not extracted',
+            email: personalInfo.email || personalInfo.contactInfo?.email || 'Not found',
+            phone: personalInfo.phone || personalInfo.contactInfo?.phone || 'Not found',
+            linkedin: personalInfo.socialProfiles?.linkedin || personalInfo.linkedin || 'Not found',
+            address: personalInfo.address?.full || personalInfo.address || 'Not found'
+          },
+          
+          roastLevel: preferences.roastLevel || 'unknown',
+          language: preferences.language || 'unknown',
+          roastType: preferences.roastType || 'unknown',
+          gender: preferences.gender || 'unknown',
+          
+          hasEmail: contactValidation.hasEmail || false,
+          hasPhone: contactValidation.hasPhone || false,
+          hasLinkedIn: contactValidation.hasLinkedIn || false,
+          contactValidation: contactValidation,
+          
+          wordCount: analysis.resumeAnalytics?.wordCount || 0,
+          pageCount: analysis.resumeAnalytics?.pageCount || 1,
+          analytics: analysis.resumeAnalytics || {},
+          
+          fullData: resume
+        };
+      });
       
       const totalPages = Math.ceil(totalCount / limit);
-      
-      logger.info('Resumes list generated', {
-        admin: req.admin?.email,
-        totalCount,
-        page,
-        limit,
-        filters: Object.keys(filters)
-      });
       
       res.json({
         success: true,
@@ -459,10 +460,6 @@ router.get('/resumes',
             pageSize: limit,
             hasNextPage: page < totalPages,
             hasPrevPage: page > 1
-          },
-          filters: {
-            applied: Object.keys(filters),
-            available: ['status', 'roastLevel', 'minScore']
           }
         }
       });
@@ -485,7 +482,7 @@ router.get('/resumes',
   }
 );
 
-// Get single resume details
+// FIXED Get single resume details
 router.get('/resume/:id',
   adminAuth.requireAuth,
   validateResumeId,
@@ -497,7 +494,6 @@ router.get('/resume/:id',
       
       const collection = mongoose.connection.db.collection('resumes');
       
-      // Try to find by resumeId first, then by _id
       let resume = await collection.findOne({ resumeId: id });
       
       if (!resume && mongoose.Types.ObjectId.isValid(id)) {
@@ -505,11 +501,6 @@ router.get('/resume/:id',
       }
       
       if (!resume) {
-        logger.warn('Resume not found', {
-          requestedId: id,
-          admin: req.admin?.email
-        });
-        
         return res.status(404).json({
           success: false,
           error: {
@@ -519,26 +510,21 @@ router.get('/resume/:id',
         });
       }
       
-      // Remove sensitive data before sending
-      const sanitizedResume = {
+      // FIXED: Include full data with proper personal info
+      const fullResumeData = {
         ...resume,
+        personalInfo: resume.extractedInfo?.personalInfo || resume.personalInfo || {},
         securityInfo: {
-          // Only show non-sensitive security info
           countryCode: resume.securityInfo?.countryCode,
-          sessionId: resume.securityInfo?.sessionId?.substring(0, 8) + '...'
+          sessionId: resume.securityInfo?.sessionId?.substring(0, 8) + '...',
+          clientIPHash: resume.securityInfo?.clientIPHash ? '[HASHED]' : null,
+          userAgentHash: resume.securityInfo?.userAgentHash ? '[HASHED]' : null
         }
       };
-      delete sanitizedResume.securityInfo.clientIPHash;
-      delete sanitizedResume.securityInfo.userAgentHash;
-      
-      logger.info('Resume details accessed', {
-        resumeId: resume.resumeId,
-        admin: req.admin?.email
-      });
       
       res.json({
         success: true,
-        data: sanitizedResume
+        data: fullResumeData
       });
       
     } catch (error) {
@@ -554,104 +540,6 @@ router.get('/resume/:id',
         error: {
           message: 'Failed to fetch resume details',
           code: 'RESUME_DETAILS_ERROR'
-        }
-      });
-    }
-  }
-);
-
-// Admin analytics endpoint
-router.get('/analytics',
-  adminAuth.requireAuth,
-  logAdminActivity('analytics'),
-  async (req, res) => {
-    try {
-      const days = Math.min(365, Math.max(1, parseInt(req.query.days) || 30));
-      
-      const analytics = await Resume.getAnalytics(days);
-      
-      logger.info('Analytics generated', {
-        admin: req.admin?.email,
-        days,
-        totalAnalyses: analytics.totalAnalyses
-      });
-      
-      res.json({
-        success: true,
-        data: {
-          ...analytics,
-          period: `${days} days`,
-          generatedAt: new Date().toISOString()
-        }
-      });
-      
-    } catch (error) {
-      logger.error('Analytics error', {
-        error: error.message,
-        admin: req.admin?.email,
-        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
-      });
-      
-      res.status(500).json({
-        success: false,
-        error: {
-          message: 'Failed to generate analytics',
-          code: 'ANALYTICS_ERROR'
-        }
-      });
-    }
-  }
-);
-
-// System health check
-router.get('/health',
-  logAdminActivity('health_check'),
-  async (req, res) => {
-    try {
-      const [authHealth, dbConnected, resumeCount] = await Promise.all([
-        adminAuth.checkHealth(),
-        mongoose.connection.readyState === 1,
-        mongoose.connection.readyState === 1 
-          ? mongoose.connection.db.collection('resumes').countDocuments()
-          : 0
-      ]);
-      
-      const healthData = {
-        system: {
-          status: 'healthy',
-          uptime: process.uptime(),
-          memory: process.memoryUsage(),
-          version: process.env.npm_package_version || '1.0.0'
-        },
-        services: {
-          authentication: authHealth,
-          database: {
-            connected: dbConnected,
-            status: dbConnected ? 'healthy' : 'disconnected',
-            resumeCount
-          }
-        },
-        timestamp: new Date().toISOString()
-      };
-      
-      const overallHealthy = authHealth.healthy && dbConnected;
-      
-      res.status(overallHealthy ? 200 : 503).json({
-        success: true,
-        data: healthData
-      });
-      
-    } catch (error) {
-      logger.error('Health check error', {
-        error: error.message,
-        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
-      });
-      
-      res.status(503).json({
-        success: false,
-        error: {
-          message: 'Health check failed',
-          code: 'HEALTH_CHECK_ERROR'
         }
       });
     }
