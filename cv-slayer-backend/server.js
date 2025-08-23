@@ -92,8 +92,8 @@ app.use(compression());
 const allowedOrigins = NODE_ENV === 'production' 
   ? [
       process.env.FRONTEND_URL,
-      'https://your-cv-slayer-frontend.vercel.app',
-      'https://your-cv-slayer-frontend.netlify.app'
+      'https://cv-slayer.vercel.app',
+      'https://cv-slayer-ppnn.onrender.com/'
     ].filter(Boolean)
   : ['http://localhost:3000', 'http://localhost:3001'];
 
