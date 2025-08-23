@@ -3,7 +3,6 @@ const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const validator = require('validator');
 const crypto = require('crypto');
-const helmet = require('helmet');
 const geminiService = require('../services/geminiService');
 const fileProcessor = require('../services/fileProcessor');
 const resumeStorage = require('../services/resumeStorageEnhanced');
@@ -236,13 +235,13 @@ const extractResumeData = (resumeText) => {
     const extractedInfo = {
       // Personal info flags (NO ACTUAL DATA - JUST BOOLEANS)
       personalInfo: {
-        hasName: false,
-        hasEmail: false,
-        hasPhone: false,
-        hasAddress: false,
-        hasLinkedIn: false,
-        hasGithub: false,
-        hasPortfolio: false
+         name: null,
+      email: null,
+      phone: null,
+      linkedin: null,
+      github: null,
+      address: null,
+      website: null
       },
       
       // Professional info (sanitized counts/categories only)
@@ -255,7 +254,7 @@ const extractResumeData = (resumeText) => {
       },
       
       // Skills analysis (counts only - NO ACTUAL SKILLS)
-      skills: {
+  skills: {
         technicalSkillsCount: 0,
         softSkillsCount: 0,
         programmingLanguages: 0,
@@ -285,17 +284,125 @@ const extractResumeData = (resumeText) => {
       }
     };
 
-    const text = resumeText.toLowerCase();
-    const lines = resumeText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    // FIXED: Extract Email
+    const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+    const emailMatches = resumeText.match(emailRegex);
+    if (emailMatches && emailMatches.length > 0) {
+      // Filter out placeholder emails
+      const validEmails = emailMatches.filter(email => 
+        !email.includes('example.com') && 
+        !email.includes('test.com') &&
+        !email.includes('placeholder')
+      );
+      extractedInfo.personalInfo.email = validEmails[0] || emailMatches[0];
+    }
 
-    // Check for presence of information (NO EXTRACTION - JUST DETECTION)
-    extractedInfo.personalInfo.hasEmail = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/.test(resumeText);
-    extractedInfo.personalInfo.hasPhone = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/.test(resumeText);
-    extractedInfo.personalInfo.hasLinkedIn = /linkedin\.com\/in\//i.test(resumeText);
-    extractedInfo.personalInfo.hasGithub = /github\.com\//i.test(resumeText);
-    extractedInfo.personalInfo.hasPortfolio = /(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/i.test(resumeText);
-    extractedInfo.personalInfo.hasName = lines.length > 0 && lines[0].length > 3 && lines[0].length < 50;
-    extractedInfo.personalInfo.hasAddress = /\b(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|city|state|zip|postal)\b/i.test(text);
+    // FIXED: Extract Phone Number
+    const phonePatterns = [
+      /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, // US format
+      /(\+?\d{1,3}[-.\s]?)?\d{10}/g, // 10 digit
+      /(\+91[-.\s]?)?\d{10}/g // Indian format
+    ];
+    
+    for (const pattern of phonePatterns) {
+      const phoneMatches = resumeText.match(pattern);
+      if (phoneMatches && phoneMatches.length > 0) {
+        const validPhone = phoneMatches.find(phone => {
+          const digitsOnly = phone.replace(/\D/g, '');
+          return digitsOnly.length >= 10 && digitsOnly.length <= 15;
+        });
+        if (validPhone) {
+          extractedInfo.personalInfo.phone = validPhone.trim();
+          break;
+        }
+      }
+    }
+
+    // FIXED: Extract LinkedIn
+    const linkedinRegex = /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([a-zA-Z0-9\-_]+)/gi;
+    const linkedinMatch = resumeText.match(linkedinRegex);
+    if (linkedinMatch && linkedinMatch.length > 0) {
+      extractedInfo.personalInfo.linkedin = linkedinMatch[0];
+    }
+
+    // FIXED: Extract GitHub
+    const githubRegex = /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9\-_]+)/gi;
+    const githubMatch = resumeText.match(githubRegex);
+    if (githubMatch && githubMatch.length > 0) {
+      extractedInfo.personalInfo.github = githubMatch[0];
+    }
+
+    // FIXED: Extract Name (from first few lines)
+    const lines = resumeText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      const line = lines[i].trim();
+      
+      // Skip lines with email, urls, CV, Resume
+      if (line.includes('@') || line.includes('http') || 
+          line.toLowerCase().includes('cv') || 
+          line.toLowerCase().includes('resume') || 
+          line.length < 2 || line.length > 50) {
+        continue;
+      }
+
+      // Check if line looks like a name (2-4 words, mostly letters)
+      const words = line.split(/\s+/).filter(w => w.length > 0);
+      if (words.length >= 2 && words.length <= 4) {
+        const isLikelyName = words.every(word => 
+          /^[A-Za-z][A-Za-z\-'\.]*$/.test(word) && word.length > 1
+        );
+        
+        if (isLikelyName) {
+          extractedInfo.personalInfo.name = line;
+          break;
+        }
+      }
+    }
+
+    // FIXED: Extract Address (basic patterns)
+    const addressPatterns = [
+      /\d+[a-zA-Z]?\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln)[^,\n]*/gi,
+      /[A-Za-z\s]+,\s*[A-Za-z\s]+,\s*[A-Za-z]{2}\s*\d{5}/gi, // City, State, ZIP
+      /[A-Za-z\s]+,\s*[A-Za-z\s]+\s*\d{6}/gi // Indian pincode
+    ];
+
+    for (const pattern of addressPatterns) {
+      const addressMatch = resumeText.match(pattern);
+      if (addressMatch && addressMatch.length > 0) {
+        extractedInfo.personalInfo.address = addressMatch[0].trim();
+        break;
+      }
+    }
+
+    // FIXED: Extract Website/Portfolio
+    const websiteRegex = /(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9\-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?/gi;
+    const websiteMatches = resumeText.match(websiteRegex);
+    if (websiteMatches && websiteMatches.length > 0) {
+      // Filter out common social media and focus on portfolio sites
+      const portfolioSites = websiteMatches.filter(url => 
+        !url.includes('linkedin.com') && 
+        !url.includes('github.com') &&
+        !url.includes('facebook.com') &&
+        !url.includes('twitter.com') &&
+        !url.includes('instagram.com')
+      );
+      if (portfolioSites.length > 0) {
+        extractedInfo.personalInfo.website = portfolioSites[0];
+      }
+    }
+
+    // Clean up extracted data
+    Object.keys(extractedInfo.personalInfo).forEach(key => {
+      if (extractedInfo.personalInfo[key]) {
+        extractedInfo.personalInfo[key] = extractedInfo.personalInfo[key].trim()
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'");
+      }
+    });
+
+    // Continue with the rest of the analytics (keeping your existing logic)
+    const text = resumeText.toLowerCase();
 
     // Professional info detection
     extractedInfo.professional.hasJobTitle = /\b(?:engineer|developer|manager|analyst|consultant|director|lead|senior|junior)\b/i.test(text);
@@ -339,7 +446,15 @@ const extractResumeData = (resumeText) => {
   } catch (error) {
     logger.error('Error extracting resume data', { error: error.message });
     return {
-      personalInfo: { hasName: false, hasEmail: false, hasPhone: false, hasAddress: false, hasLinkedIn: false, hasGithub: false, hasPortfolio: false },
+      personalInfo: {
+        name: null,
+        email: null,
+        phone: null,
+        linkedin: null,
+        github: null,
+        address: null,
+        website: null
+      },
       professional: { hasJobTitle: false, hasSummary: false, experienceLevel: 'unknown', totalExperienceYears: 0, industryType: 'other' },
       skills: { technicalSkillsCount: 0, softSkillsCount: 0, programmingLanguages: 0, frameworks: 0, databases: 0, cloudPlatforms: 0, certifications: 0 },
       experience: { jobCount: 0, hasCurrentRole: false, averageJobDuration: 0, hasInternships: false, hasFreelance: false, hasLeadershipRoles: false },
@@ -608,7 +723,7 @@ router.post('/analyze',
             roastLevel,
             roastType,
             language
-          });
+          }, req.file.originalname);
           
           if (analysis.success) break;
           

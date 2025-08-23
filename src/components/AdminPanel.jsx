@@ -20,6 +20,37 @@ const AdminPanel = () => {
       : 'http://localhost:5000/api';
   }, []);
 
+  // FIXED: Helper function to decode text and fix encoding issues
+  const cleanText = (text) => {
+    if (!text || typeof text !== 'string') return text;
+    
+    // Fix common encoding issues
+    return text
+      .replace(/â€™/g, "'")
+      .replace(/â€œ/g, '"')
+      .replace(/â€\u009d/g, '"')
+      .replace(/â€"/g, '—')
+      .replace(/â€¢/g, '•')
+      .replace(/Â/g, '')
+      .replace(/&#x27;/g, "'")
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim();
+  };
+
+  // Helper function to safely extract nested data
+  const safeGet = (obj, path, defaultValue = null) => {
+    try {
+      const result = path.split('.').reduce((current, key) => current?.[key], obj) ?? defaultValue;
+      return typeof result === 'string' ? cleanText(result) : result;
+    } catch {
+      return defaultValue;
+    }
+  };
+
   // Validate token
   const isTokenValid = useCallback(() => {
     const token = localStorage.getItem('adminToken');
@@ -50,7 +81,7 @@ const AdminPanel = () => {
       ...options,
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
         ...options.headers
       }
     });
@@ -79,7 +110,9 @@ const AdminPanel = () => {
     try {
       const response = await fetch(`${API_BASE}/admin/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json; charset=utf-8'
+        },
         body: JSON.stringify({ email: email.trim(), password })
       });
 
@@ -115,16 +148,51 @@ const AdminPanel = () => {
     }
   }, [email, password, API_BASE]);
 
-  // Load dashboard data
+  // FIXED: Load dashboard data
   const loadDashboard = useCallback(async () => {
     try {
       setLoading(true);
       const result = await apiRequest('/admin/dashboard');
       
+      console.log('Dashboard API Result:', result); // Debug log
+      
       if (result.success && result.data) {
-        setDashboardData(result.data);
+        const dashboardData = {
+          totalResumes: result.data.totalResumes || 0,
+          todayResumes: result.data.todayResumes || 0,
+          averageScore: result.data.averageScore || 0,
+          recentResumes: (result.data.recentResumes || []).map(resume => ({
+            id: resume.id,
+            displayName: cleanText(resume.personalInfo?.name || resume.displayName || resume.fileName || 'Unknown'),
+            fileName: cleanText(resume.fileName || ''),
+            score: resume.score || 0,
+            uploadedAt: resume.uploadedAt,
+            
+            personalInfo: {
+              name: cleanText(resume.personalInfo?.name || 'Not extracted'),
+              email: cleanText(resume.personalInfo?.email || 'Not found'),
+              phone: cleanText(resume.personalInfo?.phone || 'Not found'),
+              linkedin: cleanText(resume.personalInfo?.linkedin || 'Not found'),
+              address: cleanText(resume.personalInfo?.address || 'Not found')
+            },
+            
+            hasEmail: resume.hasEmail,
+            hasPhone: resume.hasPhone,
+            hasLinkedIn: resume.hasLinkedIn,
+            roastLevel: resume.roastLevel,
+            language: resume.language,
+            roastType: resume.roastType,
+            gender: resume.gender,
+            wordCount: resume.wordCount,
+            pageCount: resume.pageCount,
+            fullData: resume.fullData || resume
+          }))
+        };
+        
+        console.log('Processed Dashboard Data:', dashboardData); // Debug log
+        setDashboardData(dashboardData);
       } else {
-        // Fallback data
+        console.log('No data in dashboard response'); // Debug log
         setDashboardData({
           totalResumes: 0,
           todayResumes: 0,
@@ -133,6 +201,7 @@ const AdminPanel = () => {
         });
       }
     } catch (error) {
+      console.error('Dashboard error:', error); // Debug log
       setError(`Dashboard error: ${error.message}`);
       setDashboardData({
         totalResumes: 0,
@@ -145,33 +214,58 @@ const AdminPanel = () => {
     }
   }, [apiRequest]);
 
-  // Load resumes with proper nested field mapping
+  // FIXED: Load resumes
   const loadResumes = useCallback(async () => {
     try {
       setLoading(true);
       const result = await apiRequest('/admin/resumes');
       
+      console.log('Resumes API Result:', result); // Debug log
+      
       if (result.success && result.data) {
         const resumesData = Array.isArray(result.data) ? result.data : 
                            Array.isArray(result.data.resumes) ? result.data.resumes : [];
         
-        setResumes(resumesData.map(resume => ({
-          id: resume.resumeId || resume._id || resume.id,
-          originalFileName: resume.originalFileName || resume.fileName || 'Unknown',
-          fileSize: resume.fileSize || 0,
-          uploadedAt: resume.uploadedAt || resume.timestamps?.uploadedAt,
-          score: resume.analysis?.overallScore || resume.score || 0,
-          language: resume.preferences?.roastSettings?.language || resume.preferences?.language || 'N/A',
-          roastType: resume.preferences?.roastSettings?.type || resume.preferences?.roastType || 'N/A',
-          // Extract display name from nested structure
-          displayName: resume.extractedInfo?.personalInfo?.name || 
-                      resume.extractedInfo?.name || 
-                      (resume.originalFileName || resume.fileName || 'Unknown').replace(/\.[^/.]+$/, "")
-        })));
+        setResumes(resumesData.map(resume => {
+          const personalInfo = resume.personalInfo || {};
+          
+          return {
+            id: resume.id,
+            originalFileName: cleanText(resume.fileName || 'Unknown'),
+            fileSize: resume.fileSize || 0,
+            uploadedAt: resume.uploadedAt || new Date(),
+            score: resume.score || 0,
+            
+            displayName: cleanText(personalInfo.name || resume.fileName?.replace(/\.[^/.]+$/, "") || 'Unknown'),
+            personalInfo: {
+              name: cleanText(personalInfo.name || 'Not extracted'),
+              email: cleanText(personalInfo.email || 'Not found'),
+              phone: cleanText(personalInfo.phone || 'Not found'),
+              linkedin: cleanText(personalInfo.linkedin || 'Not found'),
+              address: cleanText(personalInfo.address || 'Not found')
+            },
+            
+            language: resume.language || 'N/A',
+            roastType: resume.roastType || 'N/A',
+            roastLevel: resume.roastLevel || 'N/A',
+            gender: resume.gender || 'N/A',
+            
+            wordCount: resume.wordCount || resume.analytics?.wordCount || 0,
+            pageCount: resume.pageCount || resume.analytics?.pageCount || 1,
+            
+            hasEmail: resume.hasEmail || false,
+            hasPhone: resume.hasPhone || false,
+            hasLinkedIn: resume.hasLinkedIn || false,
+            contactValidation: resume.contactValidation || {},
+            
+            fullData: resume.fullData || resume
+          };
+        }));
       } else {
         setResumes([]);
       }
     } catch (error) {
+      console.error('Resumes error:', error); // Debug log
       setError(`Resumes error: ${error.message}`);
       setResumes([]);
     } finally {
@@ -186,11 +280,11 @@ const AdminPanel = () => {
       if (result.success && result.data) {
         setSelectedResume(result.data);
       } else {
-        setSelectedResume(resume);
+        setSelectedResume(resume.fullData || resume);
       }
       setShowResumeModal(true);
     } catch (error) {
-      setSelectedResume(resume);
+      setSelectedResume(resume.fullData || resume);
       setShowResumeModal(true);
     }
   }, [apiRequest]);
@@ -211,169 +305,227 @@ const AdminPanel = () => {
     }
   }, [error]);
 
-  // Resume details renderer with proper nested field handling
-  const renderResumeDetails = () => (
-    <div className="resume-details">
-      <h3>Basic Information</h3>
-      <p><strong>File:</strong> {selectedResume.originalFileName || selectedResume.fileName || 'Unknown'}</p>
-      <p><strong>Size:</strong> {((selectedResume.fileSize || 0) / 1024).toFixed(2)} KB</p>
-      <p><strong>Uploaded:</strong> {new Date(selectedResume.uploadedAt || selectedResume.timestamps?.uploadedAt || Date.now()).toLocaleString()}</p>
+  // FIXED: Resume details renderer
+  const renderResumeDetails = () => {
+    if (!selectedResume) return null;
+    
+    const fileInfo = selectedResume.fileInfo || {};
+    const analysis = selectedResume.analysis || {};
+    const extractedInfo = selectedResume.extractedInfo || {};
+    const preferences = selectedResume.preferences || {};
+    const timestamps = selectedResume.timestamps || {};
+    const contactValidation = selectedResume.contactValidation || {};
+    const resumeAnalytics = selectedResume.resumeAnalytics || analysis.resumeAnalytics || {};
+    const personalInfo = selectedResume.personalInfo || extractedInfo.personalInfo || {};
+    
+    return (
+      <div className="resume-details">
+        <h3>📄 Basic Information</h3>
+        <div className="info-grid">
+          <p><strong>File:</strong> {cleanText(fileInfo.originalFileName || fileInfo.fileName || 'Unknown')}</p>
+          <p><strong>Size:</strong> {((fileInfo.fileSize || 0) / 1024).toFixed(2)} KB</p>
+          <p><strong>Type:</strong> {fileInfo.mimeType || 'Unknown'}</p>
+          <p><strong>Uploaded:</strong> {new Date(timestamps.uploadedAt || selectedResume.createdAt || Date.now()).toLocaleString()}</p>
+          <p><strong>Processed:</strong> {timestamps.processingCompletedAt ? new Date(timestamps.processingCompletedAt).toLocaleString() : 'N/A'}</p>
+          <p><strong>File Hash:</strong> {fileInfo.fileHash || 'N/A'}</p>
+        </div>
 
-      {selectedResume.analysis && (
-        <>
-          <h3>Analysis Results</h3>
-          <p><strong>Overall Score:</strong> {selectedResume.analysis.overallScore || 0}/100</p>
-          
-          {selectedResume.analysis.scoringBreakdown && (
-            <div className="scoring-breakdown">
-              <h4>Score Breakdown:</h4>
-              <p><strong>Contact Info:</strong> {selectedResume.analysis.scoringBreakdown.contactInfo || 0}/100</p>
-              <p><strong>Work Experience:</strong> {selectedResume.analysis.scoringBreakdown.workExperience || 0}/100</p>
-              <p><strong>Education:</strong> {selectedResume.analysis.scoringBreakdown.education || 0}/100</p>
-              <p><strong>Skills:</strong> {selectedResume.analysis.scoringBreakdown.skills || 0}/100</p>
-              <p><strong>Formatting:</strong> {selectedResume.analysis.scoringBreakdown.formatting || 0}/100</p>
-              <p><strong>ATS Compatibility:</strong> {selectedResume.analysis.scoringBreakdown.atsCompatibility || 0}/100</p>
+        <h3>👤 Personal Information</h3>
+        <div className="personal-info-grid">
+          <p><strong>Name:</strong> {cleanText(personalInfo.name || 'Not extracted')}</p>
+          <p><strong>Email:</strong> {cleanText(personalInfo.email || 'Not found')}</p>
+          <p><strong>Phone:</strong> {cleanText(personalInfo.phone || 'Not found')}</p>
+          <p><strong>LinkedIn:</strong> {cleanText(personalInfo.linkedin || 'Not found')}</p>
+          <p><strong>Address:</strong> {cleanText(personalInfo.address || 'Not found')}</p>
+        </div>
+
+        {analysis.overallScore && (
+          <>
+            <h3>📊 Analysis Results</h3>
+            <div className="analysis-section">
+              <p><strong>Overall Score:</strong> <span className="score-highlight">{analysis.overallScore}/100</span></p>
+              
+              {analysis.feedback && (
+                <div className="feedback-section">
+                  <h4>🤖 AI Feedback:</h4>
+                  <div className="feedback-text">
+                    {cleanText(analysis.feedback)}
+                  </div>
+                </div>
+              )}
+
+              {analysis.strengths && analysis.strengths.length > 0 && (
+                <div className="strengths-section">
+                  <h4>💪 Strengths:</h4>
+                  <ul>
+                    {analysis.strengths.map((strength, index) => (
+                      <li key={index}>{cleanText(strength)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {analysis.weaknesses && analysis.weaknesses.length > 0 && (
+                <div className="weaknesses-section">
+                  <h4>⚠️ Weaknesses:</h4>
+                  <ul>
+                    {analysis.weaknesses.map((weakness, index) => (
+                      <li key={index}>{cleanText(weakness)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {analysis.improvements && analysis.improvements.length > 0 && (
+                <div className="improvements-section">
+                  <h4>🎯 Improvements:</h4>
+                  <ul>
+                    {analysis.improvements.map((improvement, index) => (
+                      <li key={index}>
+                        {cleanText(typeof improvement === 'string' ? improvement : improvement.description || improvement.title)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-          )}
+          </>
+        )}
 
-          {selectedResume.analysis.feedback?.roastFeedback && (
-            <div className="feedback-section">
-              <h4>AI Feedback:</h4>
-              <div className="feedback-text">
-                {selectedResume.analysis.feedback.roastFeedback}
+        <h3>📈 Document Analytics</h3>
+        <div className="stats-grid">
+          <div className="stat-item">
+            <strong>Word Count:</strong> {resumeAnalytics.wordCount || 0}
+          </div>
+          <div className="stat-item">
+            <strong>Page Count:</strong> {resumeAnalytics.pageCount || 1}
+          </div>
+          <div className="stat-item">
+            <strong>Sections:</strong> {resumeAnalytics.sectionCount || 0}
+          </div>
+          <div className="stat-item">
+            <strong>Bullet Points:</strong> {resumeAnalytics.bulletPointCount || 0}
+          </div>
+          <div className="stat-item">
+            <strong>Achievements:</strong> {resumeAnalytics.quantifiableAchievements || 0}
+          </div>
+          <div className="stat-item">
+            <strong>Action Verbs:</strong> {resumeAnalytics.actionVerbsUsed || 0}
+          </div>
+          <div className="stat-item">
+            <strong>Readability Score:</strong> {resumeAnalytics.readabilityScore || 'N/A'}
+          </div>
+          <div className="stat-item">
+            <strong>ATS Compatibility:</strong> {resumeAnalytics.atsCompatibility || 'N/A'}
+          </div>
+        </div>
+
+        <h3>📞 Contact Information Status</h3>
+        <div className="contact-validation">
+          <div className="contact-grid">
+            <div className="contact-item">
+              <strong>Email:</strong> {contactValidation.hasEmail ? '✅ Found' : '❌ Missing'}
+              {contactValidation.hasEmail && (
+                <span className="validation-status">
+                  {contactValidation.emailValid ? ' (Valid Format)' : ' (Invalid Format)'}
+                </span>
+              )}
+            </div>
+            <div className="contact-item">
+              <strong>Phone:</strong> {contactValidation.hasPhone ? '✅ Found' : '❌ Missing'}
+              {contactValidation.hasPhone && (
+                <span className="validation-status">
+                  {contactValidation.phoneValid ? ' (Valid Format)' : ' (Invalid Format)'}
+                </span>
+              )}
+            </div>
+            <div className="contact-item">
+              <strong>LinkedIn:</strong> {contactValidation.hasLinkedIn ? '✅ Found' : '❌ Missing'}
+              {contactValidation.hasLinkedIn && (
+                <span className="validation-status">
+                  {contactValidation.linkedInValid ? ' (Valid URL)' : ' (Invalid URL)'}
+                </span>
+              )}
+            </div>
+            <div className="contact-item">
+              <strong>Address:</strong> {contactValidation.hasAddress ? '✅ Found' : '❌ Missing'}
+            </div>
+          </div>
+        </div>
+
+        {Object.keys(preferences).length > 0 && (
+          <>
+            <h3>⚙️ User Preferences</h3>
+            <div className="preferences-grid">
+              <p><strong>Gender:</strong> {preferences.gender || 'N/A'}</p>
+              <p><strong>Roast Level:</strong> {preferences.roastLevel || 'N/A'}</p>
+              <p><strong>Roast Type:</strong> {preferences.roastType || 'N/A'}</p>
+              <p><strong>Language:</strong> {preferences.language || 'N/A'}</p>
+            </div>
+          </>
+        )}
+
+        {resumeAnalytics.industryKeywords && resumeAnalytics.industryKeywords.length > 0 && (
+          <>
+            <h3>🏷️ Industry Keywords Found</h3>
+            <div className="keywords-section">
+              <div className="keywords-tags">
+                {resumeAnalytics.industryKeywords.slice(0, 15).map((keyword, index) => (
+                  <span key={index} className="keyword-tag">{cleanText(keyword)}</span>
+                ))}
+                {resumeAnalytics.industryKeywords.length > 15 && (
+                  <span className="keyword-tag more">
+                    +{resumeAnalytics.industryKeywords.length - 15} more
+                  </span>
+                )}
               </div>
             </div>
-          )}
+          </>
+        )}
 
-          {selectedResume.analysis.feedback?.strengths?.length > 0 && (
-            <div className="strengths-section">
-              <h4>💪 Strengths:</h4>
-              <ul>
-                {selectedResume.analysis.feedback.strengths.map((strength, index) => (
-                  <li key={index}>{strength}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {selectedResume.analysis.feedback?.improvements?.length > 0 && (
-            <div className="improvements-section">
-              <h4>🎯 Improvements:</h4>
-              {selectedResume.analysis.feedback.improvements.map((improvement, index) => (
-                <div key={index} className={`improvement-item priority-${improvement.priority}`}>
-                  <strong>{improvement.title}</strong>
-                  <p>{improvement.description}</p>
-                  {improvement.example && <small><em>Example: {improvement.example}</em></small>}
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {selectedResume.extractedInfo && (
-        <>
-          <h3>Extracted Information</h3>
-          <div className="extracted-info-grid">
-            <div className="info-section">
-              <h4>👤 Personal Details</h4>
-              <p><strong>Name:</strong> {selectedResume.extractedInfo?.personalInfo?.name || 'N/A'}</p>
-              <p><strong>Email:</strong> {selectedResume.extractedInfo?.personalInfo?.email || 'N/A'}</p>
-              <p><strong>Phone:</strong> {selectedResume.extractedInfo?.personalInfo?.phone || 'N/A'}</p>
-              <p><strong>Address:</strong> {selectedResume.extractedInfo?.personalInfo?.address?.full || 'N/A'}</p>
-              <p><strong>LinkedIn:</strong> {selectedResume.extractedInfo?.personalInfo?.socialProfiles?.linkedin || 'N/A'}</p>
-              <p><strong>GitHub:</strong> {selectedResume.extractedInfo?.personalInfo?.socialProfiles?.github || 'N/A'}</p>
-              <p><strong>Portfolio:</strong> {selectedResume.extractedInfo?.personalInfo?.socialProfiles?.portfolio || 'N/A'}</p>
-            </div>
-            
-            <div className="info-section">
-              <h4>💼 Professional Info</h4>
-              <p><strong>Professional Summary:</strong> {selectedResume.extractedInfo?.professionalSummary ? 'Yes' : 'No'}</p>
-              <p><strong>Current Job:</strong> {selectedResume.extractedInfo?.experience?.[0]?.title || 'N/A'}</p>
-              <p><strong>Current Company:</strong> {selectedResume.extractedInfo?.experience?.[0]?.company || 'N/A'}</p>
-              <p><strong>Total Experience:</strong> {selectedResume.extractedInfo?.experience?.length || 0} positions</p>
-            </div>
-            
-            <div className="info-section">
-              <h4>🛠️ Skills & Education</h4>
-              <p><strong>Technical Skills:</strong> {(selectedResume.extractedInfo?.skills?.technical || []).length}</p>
-              <p><strong>Soft Skills:</strong> {(selectedResume.extractedInfo?.skills?.soft || []).length}</p>
-              <p><strong>Languages:</strong> {(selectedResume.extractedInfo?.skills?.languages || []).length}</p>
-              <p><strong>Tools:</strong> {(selectedResume.extractedInfo?.skills?.tools || []).length}</p>
-              <p><strong>Frameworks:</strong> {(selectedResume.extractedInfo?.skills?.frameworks || []).length}</p>
-              <p><strong>Education:</strong> {(selectedResume.extractedInfo?.education || []).length} entries</p>
-              <p><strong>Projects:</strong> {(selectedResume.extractedInfo?.projects || []).length} listed</p>
-              <p><strong>Certifications:</strong> {(selectedResume.extractedInfo?.certifications || []).length} found</p>
-              <p><strong>Awards:</strong> {(selectedResume.extractedInfo?.awards || []).length} found</p>
-            </div>
-            
-            {((selectedResume.extractedInfo?.skills?.technical?.length || 0) + 
-              (selectedResume.extractedInfo?.skills?.soft?.length || 0)) > 0 && (
-              <div className="info-section">
-                <h4>🏷️ Skills List</h4>
-                <div className="skills-tags">
-                  {[...(selectedResume.extractedInfo?.skills?.technical || []), 
-                    ...(selectedResume.extractedInfo?.skills?.soft || [])]
-                    .slice(0, 15)
-                    .map((skill, index) => (
-                      <span key={index} className="skill-tag">{skill}</span>
-                    ))}
-                  {((selectedResume.extractedInfo?.skills?.technical?.length || 0) +
-                    (selectedResume.extractedInfo?.skills?.soft?.length || 0)) > 15 && (
-                    <span className="skill-tag more">
-                      +{((selectedResume.extractedInfo?.skills?.technical?.length || 0) +
-                        (selectedResume.extractedInfo?.skills?.soft?.length || 0)) - 15} more
-                    </span>
-                  )}
-                </div>
+        {(analysis.strongElements || analysis.missingElements) && (
+          <>
+            <h3>🔍 Content Analysis</h3>
+            {analysis.strongElements && analysis.strongElements.length > 0 && (
+              <div className="elements-section">
+                <h4>✅ Strong Elements:</h4>
+                <ul>
+                  {analysis.strongElements.map((element, index) => (
+                    <li key={index} className="strong-element">{cleanText(element)}</li>
+                  ))}
+                </ul>
               </div>
             )}
-          </div>
-        </>
-      )}
+            
+            {analysis.missingElements && analysis.missingElements.length > 0 && (
+              <div className="elements-section">
+                <h4>❌ Missing Elements:</h4>
+                <ul>
+                  {analysis.missingElements.map((element, index) => (
+                    <li key={index} className="missing-element">{cleanText(element)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
 
-      {selectedResume.preferences && (
-        <>
-          <h3>User Preferences</h3>
-          <div className="preferences-grid">
-            <p><strong>Gender:</strong> {selectedResume.preferences?.roastSettings?.gender || selectedResume.preferences?.gender || 'N/A'}</p>
-            <p><strong>Roast Level:</strong> {selectedResume.preferences?.roastSettings?.level || selectedResume.preferences?.roastLevel || 'N/A'}</p>
-            <p><strong>Roast Type:</strong> {selectedResume.preferences?.roastSettings?.type || selectedResume.preferences?.roastType || 'N/A'}</p>
-            <p><strong>Language:</strong> {selectedResume.preferences?.roastSettings?.language || selectedResume.preferences?.language || 'N/A'}</p>
-          </div>
-        </>
-      )}
-
-      {(selectedResume.statistics || selectedResume.resumeAnalytics) && (
-        <>
-          <h3>Document Statistics</h3>
-          <div className="stats-grid">
-            <p><strong>Word Count:</strong> {selectedResume.statistics?.wordCount || selectedResume.resumeAnalytics?.wordCount || 0}</p>
-            <p><strong>Page Count:</strong> {selectedResume.statistics?.pageCount || selectedResume.resumeAnalytics?.pageCount || 1}</p>
-            <p><strong>Section Count:</strong> {selectedResume.statistics?.sectionCount || selectedResume.resumeAnalytics?.sectionCount || 0}</p>
-            <p><strong>Bullet Points:</strong> {selectedResume.statistics?.bulletPointCount || selectedResume.resumeAnalytics?.bulletPointCount || 0}</p>
-            <p><strong>Quantifiable Achievements:</strong> {selectedResume.statistics?.quantifiableAchievements || selectedResume.resumeAnalytics?.quantifiableAchievements || 0}</p>
-            <p><strong>ATS Compatibility:</strong> {selectedResume.statistics?.atsCompatibility || selectedResume.resumeAnalytics?.atsCompatibility || 'N/A'}</p>
-          </div>
-        </>
-      )}
-
-      {selectedResume.contactValidation && (
-        <>
-          <h3>Contact Validation</h3>
-          <div className="contact-validation">
-            <p><strong>Has Email:</strong> {selectedResume.contactValidation.hasEmail ? '✅' : '❌'}</p>
-            <p><strong>Email Valid:</strong> {selectedResume.contactValidation.emailValid ? '✅' : '❌'}</p>
-            <p><strong>Has Phone:</strong> {selectedResume.contactValidation.hasPhone ? '✅' : '❌'}</p>
-            <p><strong>Phone Valid:</strong> {selectedResume.contactValidation.phoneValid ? '✅' : '❌'}</p>
-            <p><strong>Has LinkedIn:</strong> {selectedResume.contactValidation.hasLinkedIn ? '✅' : '❌'}</p>
-            <p><strong>LinkedIn Valid:</strong> {selectedResume.contactValidation.linkedInValid ? '✅' : '❌'}</p>
-            <p><strong>Has Address:</strong> {selectedResume.contactValidation.hasAddress ? '✅' : '❌'}</p>
-          </div>
-        </>
-      )}
-    </div>
-  );
+        {selectedResume.metadata && (
+          <>
+            <h3>🔧 Technical Metadata</h3>
+            <div className="metadata-grid">
+              <p><strong>Request ID:</strong> {selectedResume.metadata.requestId || 'N/A'}</p>
+              <p><strong>Processing Time:</strong> {selectedResume.metadata.processingTime || 0}ms</p>
+              <p><strong>Client IP:</strong> {selectedResume.metadata.clientIP || 'N/A'}</p>
+              <p><strong>Country:</strong> {selectedResume.metadata.countryCode || selectedResume.securityInfo?.countryCode || 'N/A'}</p>
+              <p><strong>GDPR Consent:</strong> {selectedResume.metadata.gdprConsent ? '✅ Yes' : '❌ No'}</p>
+              <p><strong>Created:</strong> {new Date(selectedResume.metadata.createdAt || selectedResume.createdAt || Date.now()).toLocaleString()}</p>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
 
   // LOGIN UI
   if (!isAuthenticated) {
@@ -387,7 +539,7 @@ const AdminPanel = () => {
           
           {error && (
             <div className="error-alert">
-              <span>⚠️ {error}</span>
+              <span>⚠️ {cleanText(error)}</span>
               <button onClick={() => setError('')} className="close-btn">×</button>
             </div>
           )}
@@ -435,7 +587,7 @@ const AdminPanel = () => {
     <div className="admin-panel">
       {error && (
         <div className="error-banner">
-          <span>⚠️ {error}</span>
+          <span>⚠️ {cleanText(error)}</span>
           <button onClick={() => setError('')}>×</button>
         </div>
       )}
@@ -478,14 +630,14 @@ const AdminPanel = () => {
         )}
 
         {/* Dashboard View */}
-        {currentView === 'dashboard' && dashboardData && !loading && (
+        {currentView === 'dashboard' && !loading && (
           <div className="dashboard-view">
             <div className="stats-grid">
               <div className="stat-card">
                 <div className="stat-icon">📄</div>
                 <div className="stat-content">
                   <h3>Total Resumes</h3>
-                  <p className="stat-number">{dashboardData.totalResumes || 0}</p>
+                  <p className="stat-number">{dashboardData?.totalResumes || 0}</p>
                 </div>
               </div>
               
@@ -493,7 +645,7 @@ const AdminPanel = () => {
                 <div className="stat-icon">📅</div>
                 <div className="stat-content">
                   <h3>Today's Uploads</h3>
-                  <p className="stat-number">{dashboardData.todayResumes || 0}</p>
+                  <p className="stat-number">{dashboardData?.todayResumes || 0}</p>
                 </div>
               </div>
               
@@ -501,14 +653,14 @@ const AdminPanel = () => {
                 <div className="stat-icon">⭐</div>
                 <div className="stat-content">
                   <h3>Average Score</h3>
-                  <p className="stat-number">{(dashboardData.averageScore || 0).toFixed(1)}/100</p>
+                  <p className="stat-number">{(dashboardData?.averageScore || 0).toFixed(1)}/100</p>
                 </div>
               </div>
             </div>
 
             <div className="recent-section">
               <h3>📋 Recent Resumes</h3>
-              {dashboardData.recentResumes?.length > 0 ? (
+              {dashboardData?.recentResumes?.length > 0 ? (
                 <div className="recent-list">
                   {dashboardData.recentResumes.map((resume, index) => (
                     <div 
@@ -517,7 +669,8 @@ const AdminPanel = () => {
                       onClick={() => handleResumeClick(resume)}
                     >
                       <div className="item-info">
-                        <h4>{resume.displayName || resume.fileName || 'Unknown File'}</h4>
+                        <h4>{resume.personalInfo?.name || resume.displayName || resume.fileName || 'Unknown File'}</h4>
+                        <p><strong>Email:</strong> {resume.personalInfo?.email || 'Not found'}</p>
                         <p>Score: {resume.score || 0}/100</p>
                         <small>{new Date(resume.uploadedAt).toLocaleDateString()}</small>
                       </div>
@@ -550,21 +703,40 @@ const AdminPanel = () => {
                     onClick={() => handleResumeClick(resume)}
                   >
                     <div className="card-header">
-                      <h4 title={resume.originalFileName}>
-                        {resume.displayName?.length > 25 
-                          ? resume.displayName.substring(0, 25) + '...'
-                          : resume.displayName
+                      <h4 title={resume.personalInfo?.name || resume.originalFileName}>
+                        {(resume.personalInfo?.name || resume.displayName)?.length > 25 
+                          ? (resume.personalInfo?.name || resume.displayName).substring(0, 25) + '...'
+                          : (resume.personalInfo?.name || resume.displayName)
                         }
                       </h4>
                       <span className="score-badge">{resume.score}/100</span>
                     </div>
                     
                     <div className="card-content">
+                      <p><strong>Name:</strong> {resume.personalInfo?.name || 'Not extracted'}</p>
+                      <p><strong>Email:</strong> {resume.personalInfo?.email || 'Not found'}</p>
+                      <p><strong>Phone:</strong> {resume.personalInfo?.phone || 'Not found'}</p>
+                      <p><strong>LinkedIn:</strong> {resume.personalInfo?.linkedin || 'Not found'}</p>
                       <p><strong>File:</strong> {resume.originalFileName}</p>
                       <p><strong>Size:</strong> {(resume.fileSize / 1024).toFixed(1)} KB</p>
+                      <p><strong>Words:</strong> {resume.wordCount || 'N/A'}</p>
+                      <p><strong>Pages:</strong> {resume.pageCount || 1}</p>
                       <p><strong>Uploaded:</strong> {new Date(resume.uploadedAt).toLocaleDateString()}</p>
                       <p><strong>Language:</strong> {resume.language}</p>
                       <p><strong>Type:</strong> {resume.roastType}</p>
+                      <p><strong>Level:</strong> {resume.roastLevel}</p>
+                      
+                      <div className="contact-indicators">
+                        <span className={`indicator ${resume.hasEmail ? 'has' : 'missing'}`}>
+                          📧 {resume.hasEmail ? '✓' : '✗'}
+                        </span>
+                        <span className={`indicator ${resume.hasPhone ? 'has' : 'missing'}`}>
+                          📱 {resume.hasPhone ? '✓' : '✗'}
+                        </span>
+                        <span className={`indicator ${resume.hasLinkedIn ? 'has' : 'missing'}`}>
+                          💼 {resume.hasLinkedIn ? '✓' : '✗'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}
