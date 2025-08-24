@@ -9,12 +9,12 @@ const resumeSchema = new mongoose.Schema({
   },
   
   fileInfo: {
-    fileName: { type: String, required: true },
-    originalFileName: { type: String, required: true },
-    fileSize: { type: Number, required: true },
-    mimeType: { type: String, required: true },
-    fileHash: { type: String, default: 'unknown' }
-  },
+  fileName: { type: String, required: true },
+  originalFileName: { type: String, required: true },
+  fileSize: { type: Number, required: true },
+  mimeType: { type: String, required: true },
+  fileHash: { type: String, default: 'unknown' }
+},
   
   extractedInfo: {
     personalInfo: {
