@@ -8,6 +8,7 @@ const fileProcessor = require('../services/fileProcessor');
 const resumeStorage = require('../services/resumeStorageEnhanced');
 const { connectDB } = require('../config/database');
 const winston = require('winston');
+const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
@@ -909,11 +910,15 @@ router.post('/analyze',
       setImmediate(async () => {
         try {
           await connectDB(); // Ensure database connection
-          
+
+          // Create a unique ID for the resume
+          const resumeId = uuidv4();
+
           const saveResult = await resumeStorage.saveResumeData(
             req.file,
             resumeText, // Save original extracted text for admin (NEVER SENT TO CLIENT)
             {
+              resumeId,
               ...analysis.data,
               extractedInfo: extractedInfo,
               statistics: statistics
