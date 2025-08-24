@@ -147,6 +147,15 @@ function App() {
     if (fileInput) fileInput.value = '';
   }, []);
 
+  const statusMessages = {
+  400: 'Invalid file or request',
+  413: 'File too large',
+  409: 'This resume file has already been analyzed. Please upload a different file.',
+  429: 'Too many requests. Please wait and try again',
+  500: 'Server error. Please try again later',
+  503: 'Service temporarily unavailable'
+};
+
   // Production-ready submit handler
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
