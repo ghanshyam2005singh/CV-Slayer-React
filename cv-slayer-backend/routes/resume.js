@@ -44,10 +44,18 @@ const analyzeRateLimit = rateLimit({
       retryAfter: 900
     }
   },
-  standardHeaders: true,
+   standardHeaders: true,
   legacyHeaders: false,
+  // Skip rate limiting errors in development
   skip: (req) => {
-    return process.env.NODE_ENV === 'development' && process.env.SKIP_RATE_LIMIT === 'true';
+    return process.env.NODE_ENV === 'development';
+  },
+  // Better key generator for production
+  keyGenerator: (req) => {
+    if (process.env.NODE_ENV === 'production') {
+      return req.ip || req.connection.remoteAddress || 'unknown';
+    }
+    return 'localhost';
   }
 });
 
@@ -531,6 +539,62 @@ const analyzeDocumentStats = (resumeText, file) => {
     };
   }
 };
+
+// Add this to your routes/resume.js file temporarily
+router.post('/debug-analyze', upload.single('resume'), async (req, res) => {
+  try {
+    console.log('=== DEBUG START ===');
+    console.log('File received:', !!req.file);
+    console.log('Body params:', req.body);
+    
+    if (!req.file) {
+      return res.json({ error: 'No file uploaded' });
+    }
+    
+    console.log('File info:', {
+      name: req.file.originalname,
+      size: req.file.size,
+      type: req.file.mimetype
+    });
+    
+    // Test file processing
+    console.log('Testing file extraction...');
+    const text = await fileProcessor.extractText(req.file);
+    console.log('Text extracted:', text.length, 'characters');
+    
+    // Test Gemini API
+    console.log('Testing Gemini API...');
+    const analysis = await geminiService.analyzeResume(text.substring(0, 1000), {
+      gender: req.body.gender || 'other',
+      roastLevel: req.body.roastLevel || 'ache',
+      roastType: req.body.roastType || 'funny',
+      language: req.body.language || 'english'
+    }, req.file.originalname);
+    
+    console.log('AI analysis success:', analysis.success);
+    console.log('=== DEBUG END ===');
+    
+    res.json({
+      success: true,
+      debug: {
+        fileReceived: true,
+        textExtracted: text.length,
+        aiAnalysis: analysis.success,
+        message: 'All components working'
+      }
+    });
+    
+  } catch (error) {
+    console.error('DEBUG ERROR:', error.message);
+    console.error('STACK:', error.stack);
+    
+    res.json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
 
 // POST /api/resume/analyze - Enhanced with comprehensive data extraction and storage
 router.post('/analyze', 
