@@ -16,6 +16,13 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 
+// Trust proxy for Render deployment
+if (NODE_ENV === 'production') {
+  app.set('trust proxy', 1); // Trust first proxy (Render)
+} else {
+  app.set('trust proxy', false); // Disable for localhost
+}
+
 // Production logging setup
 const logger = winston.createLogger({
   level: NODE_ENV === 'production' ? 'warn' : 'info',
