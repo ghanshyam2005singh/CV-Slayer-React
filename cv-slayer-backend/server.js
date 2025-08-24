@@ -17,11 +17,7 @@ const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 
 // Trust proxy for Render deployment
-if (NODE_ENV === 'production') {
-  app.set('trust proxy', 1); // Trust first proxy (Render)
-} else {
-  app.set('trust proxy', false); // Disable for localhost
-}
+app.set('trust proxy', false);
 
 // Production logging setup
 const logger = winston.createLogger({
@@ -96,13 +92,10 @@ app.use('/api/resume', resumeLimiter);
 app.use(compression());
 
 // CORS configuration for production
-const allowedOrigins = NODE_ENV === 'production' 
-  ? [
-      process.env.FRONTEND_URL,
-      'https://cv-slayer.vercel.app',
-      'https://cv-slayer-ppnn.onrender.com/'
-    ].filter(Boolean)
-  : ['http://localhost:3000', 'http://localhost:3001'];
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://cv-slayer-ppnn.onrender.com/'
+];
 
 app.use(cors({
   origin: function (origin, callback) {
