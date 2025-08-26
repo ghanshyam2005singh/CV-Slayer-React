@@ -14,6 +14,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 
+app.use('/api', require('./routes/health'));
+
 // Trust proxy for deployment
 app.set('trust proxy', 1);
 
