@@ -16,14 +16,14 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 
-// Trust proxy for Render deployment
+// Trust proxy for cloud deployment (Render, Heroku, etc.)
 if (NODE_ENV === 'production') {
-  app.set('trust proxy', false); // Trust first proxy (Render)
+  app.set('trust proxy', 1); // Trust first proxy
 } else {
   app.set('trust proxy', false); // Disable for localhost
 }
 
-// Production logging setup
+// Production-safe logging setup
 const logger = winston.createLogger({
   level: NODE_ENV === 'production' ? 'warn' : 'info',
   format: winston.format.combine(
@@ -31,18 +31,14 @@ const logger = winston.createLogger({
     winston.format.errors({ stack: true }),
     winston.format.json()
   ),
-  transports: [
-    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'logs/combined.log' })
-  ]
+  transports: NODE_ENV === 'production' 
+    ? [new winston.transports.Console()] // Only console in production
+    : [
+        new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+        new winston.transports.File({ filename: 'logs/combined.log' }),
+        new winston.transports.Console({ format: winston.format.simple() })
+      ]
 });
-
-// Only add console logging in development
-if (NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.simple()
-  }));
-}
 
 // Security middleware
 app.use(helmet({
@@ -150,6 +146,34 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
+
+// Debug middleware (only in production for troubleshooting)
+if (NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    console.log('=== Production Debug ===');
+    console.log('Method:', req.method);
+    console.log('URL:', req.url);
+    console.log('Origin:', req.get('Origin'));
+    console.log('Content-Type:', req.get('Content-Type'));
+    console.log('User-Agent:', req.get('User-Agent'));
+    console.log('========================');
+    next();
+  });
+
+  // Response debugging
+  app.use((req, res, next) => {
+    const originalSend = res.send;
+    res.send = function(data) {
+      console.log('=== Response Debug ===');
+      console.log('Status:', res.statusCode);
+      console.log('Headers:', res.getHeaders());
+      console.log('Body length:', data ? data.length : 0);
+      console.log('======================');
+      originalSend.call(this, data);
+    };
+    next();
+  });
+}
 
 // Import routes with error handling
 let resumeRoutes, adminRoutes;
@@ -271,10 +295,12 @@ process.on('unhandledRejection', (reason, promise) => {
 // Start server
 async function startServer() {
   try {
-    // Create logs directory if it doesn't exist
-    const fs = require('fs');
-    if (!fs.existsSync('logs')) {
-      fs.mkdirSync('logs');
+    // Only create logs directory in development
+    if (NODE_ENV !== 'production') {
+      const fs = require('fs');
+      if (!fs.existsSync('logs')) {
+        fs.mkdirSync('logs');
+      }
     }
 
     // Connect to database

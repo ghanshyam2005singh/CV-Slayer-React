@@ -17,17 +17,19 @@ const resumeSchema = new mongoose.Schema({
 },
   
   extractedInfo: {
-    personalInfo: {
-      name: String,
-      email: String,
-      phone: String,
-      address: {
-        full: String,
-        city: String,
-        state: String,
-        country: String,
-        zipCode: String
-      },
+  personalInfo: {
+    name: String,
+    email: String,
+    phone: String,
+    address: {
+      full: { type: String, default: '' },
+      city: { type: String, default: '' },
+      state: { type: String, default: '' },
+      country: { type: String, default: '' },
+      zipCode: { type: String, default: '' }
+    },
+     required: false
+  },
       socialProfiles: {
         linkedin: String,
         github: String,

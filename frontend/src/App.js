@@ -53,6 +53,7 @@ function App() {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
+  // Removed unused performanceMetrics state
   const [formData, setFormData] = useState({
     gender: 'male',
     roastLevel: 'pyar',
@@ -61,18 +62,18 @@ function App() {
   });
 
   // Production API Configuration
-  const API_CONFIG = useMemo(() => ({
-    baseURL: process.env.NODE_ENV === 'production' 
-      ? window.location.origin 
-      : process.env.REACT_APP_API_URL || 'http://localhost:5000',
-    timeout: 180000, // 3 minutes for production
-    maxFileSize: 10 * 1024 * 1024, // 10MB
-    allowedTypes: [
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword'
-    ]
-  }), []);
+const API_CONFIG = useMemo(() => ({
+  baseURL: process.env.NODE_ENV === 'production' 
+    ? process.env.REACT_APP_API_URL || 'https://cv-slayer.onrender.com'
+    : process.env.REACT_APP_API_URL || 'http://localhost:5000',
+  timeout: 180000,
+  maxFileSize: 10 * 1024 * 1024,
+  allowedTypes: [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword'
+  ]
+}), []);
 
   // Enhanced file validation
   const validateFile = useCallback((file) => {
@@ -147,152 +148,154 @@ function App() {
     if (fileInput) fileInput.value = '';
   }, []);
 
-  const statusMessages = {
+ const statusMessages = useMemo(() => ({
   400: 'Invalid file or request',
-  413: 'File too large',
+  401: 'Authentication required',
+  403: 'Access forbidden',
   409: 'This resume file has already been analyzed. Please upload a different file.',
+  413: 'File too large (max 10MB)',
   429: 'Too many requests. Please wait and try again',
   500: 'Server error. Please try again later',
-  503: 'Service temporarily unavailable'
-};
+  502: 'Service temporarily unavailable',
+  503: 'Service temporarily unavailable',
+  504: 'Request timeout. Please try again'
+}), []);
 
   // Production-ready submit handler
-  const handleSubmit = useCallback(async (e) => {
-    e.preventDefault();
+const handleSubmit = useCallback(async (e) => {
+  e.preventDefault();
+  
+  // const startTime = performance.now();
+
+  if (!agreedToTerms) {
+    setError('Please accept the Terms & Conditions to continue');
+    return;
+  }
+  
+  if (!selectedFile) {
+    setError('Please select a resume file');
+    return;
+  }
+  
+  const validationError = validateFile(selectedFile);
+  if (validationError) {
+    setError(validationError);
+    return;
+  }
+  
+  setIsLoading(true);
+  setError('');
+  setLoadingStep('uploading');
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.timeout);
+
+  try {
+    const formDataToSend = new FormData();
+    formDataToSend.append('resume', selectedFile);
+    formDataToSend.append('gender', formData.gender);
+    formDataToSend.append('roastLevel', formData.roastLevel);
+    formDataToSend.append('roastType', formData.roastType);
+    formDataToSend.append('language', formData.language);
+    formDataToSend.append('consentGiven', 'true');
+    formDataToSend.append('termsAccepted', 'true');
+
+    setLoadingStep('analyzing');
+
+    const apiUrl = `${API_CONFIG.baseURL}/api/resume/analyze`;
     
-    if (!agreedToTerms) {
-      setError('Please accept the Terms & Conditions to continue');
-      return;
-    }
-    
-    if (!selectedFile) {
-      setError('Please select a resume file');
-      return;
-    }
-    
-    const validationError = validateFile(selectedFile);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    
-    setIsLoading(true);
-    setError('');
-    setLoadingStep('uploading');
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.timeout);
-
-    try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('resume', selectedFile);
-      formDataToSend.append('gender', formData.gender);
-      formDataToSend.append('roastLevel', formData.roastLevel);
-      formDataToSend.append('roastType', formData.roastType);
-      formDataToSend.append('language', formData.language);
-      formDataToSend.append('consentGiven', 'true');
-      formDataToSend.append('termsAccepted', 'true');
-
-      setLoadingStep('analyzing');
-
-      const apiUrl = `${API_CONFIG.baseURL}/api/resume/analyze`;
-      
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        body: formDataToSend,
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
-
-      clearTimeout(timeoutId);
-      setLoadingStep('processing');
-
-      if (!response.ok) {
-        let errorMessage = 'Analysis failed. Please try again.';
-        
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error?.message || errorData.message || errorMessage;
-        } catch {
-          const statusMessages = {
-            400: 'Invalid file or request',
-            413: 'File too large',
-            429: 'Too many requests. Please wait and try again',
-            500: 'Server error. Please try again later',
-            503: 'Service temporarily unavailable'
-          };
-          errorMessage = statusMessages[response.status] || `Error ${response.status}`;
-        }
-        
-        throw new Error(errorMessage);
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      body: formDataToSend,
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json'
       }
+    });
 
-      const responseText = await response.text();
-      let result;
+    clearTimeout(timeoutId);
+    setLoadingStep('processing');
+
+    if (!response.ok) {
+      let errorMessage = 'Analysis failed. Please try again.';
       
       try {
-        result = JSON.parse(responseText);
+        const errorData = await response.json();
+        errorMessage = errorData.error?.message || errorData.message || errorMessage;
       } catch {
-        throw new Error('Invalid server response');
+        errorMessage = statusMessages[response.status] || `Error ${response.status}`;
       }
+      
+      throw new Error(errorMessage);
+    }
 
-      // Handle both nested and flat response structures
-      let processedData;
-      if (result.data) {
-        processedData = result.data;
-      } else if (result.success !== false) {
-        processedData = {
-          score: result.score,
-          roastFeedback: result.roastFeedback,
-          improvements: result.improvements || [],
-          strengths: result.strengths || [],
-          weaknesses: result.weaknesses || []
-        };
-      } else {
-        throw new Error(result.error?.message || 'Analysis failed');
-      }
+    const responseText = await response.text();
+    let result;
+    
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      throw new Error('Invalid server response');
+    }
 
-      if (!processedData.roastFeedback && !processedData.score) {
-        throw new Error('Incomplete analysis received');
-      }
-
-      const finalResults = {
-        ...processedData,
-        originalFileName: selectedFile.name,
-        score: Number(processedData.score) || 0,
-        roastFeedback: processedData.roastFeedback || '',
-        improvements: Array.isArray(processedData.improvements) ? processedData.improvements : [],
-        strengths: Array.isArray(processedData.strengths) ? processedData.strengths : [],
-        weaknesses: Array.isArray(processedData.weaknesses) ? processedData.weaknesses : []
+    // Handle both nested and flat response structures
+    let processedData;
+    if (result.data) {
+      processedData = result.data;
+    } else if (result.success !== false) {
+      processedData = {
+        score: result.score,
+        roastFeedback: result.roastFeedback,
+        improvements: result.improvements || [],
+        strengths: result.strengths || [],
+        weaknesses: result.weaknesses || []
       };
+    } else {
+      throw new Error(result.error?.message || 'Analysis failed');
+    }
 
-      setLoadingStep('complete');
-      
-      setTimeout(() => {
-        setResults(finalResults);
-        setIsLoading(false);
-        setLoadingStep('');
-      }, 1000);
+    if (!processedData.roastFeedback && !processedData.score) {
+      throw new Error('Incomplete analysis received');
+    }
 
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      let userMessage;
-      if (error.name === 'AbortError') {
-        userMessage = 'Request timed out. Please try with a smaller file';
-      } else if (error.message.includes('fetch') || error.message.includes('Network')) {
-        userMessage = 'Connection failed. Please check your internet and try again';
-      } else {
-        userMessage = error.message || 'An error occurred. Please try again';
-      }
-      
-      setError(userMessage);
+    const finalResults = {
+      ...processedData,
+      originalFileName: selectedFile.name,
+      score: Number(processedData.score) || 0,
+      roastFeedback: processedData.roastFeedback || '',
+      improvements: Array.isArray(processedData.improvements) ? processedData.improvements : [],
+      strengths: Array.isArray(processedData.strengths) ? processedData.strengths : [],
+      weaknesses: Array.isArray(processedData.weaknesses) ? processedData.weaknesses : []
+    };
+
+    // Fix: Correct performance timing
+    // Removed setPerformanceMetrics as it's unused
+
+    setLoadingStep('complete');
+    
+    setTimeout(() => {
+      setResults(finalResults);
       setIsLoading(false);
       setLoadingStep('');
+    }, 1000);
+
+  } catch (error) {
+    clearTimeout(timeoutId);
+    
+    let userMessage;
+    if (error.name === 'AbortError') {
+      userMessage = 'Request timed out. Please try with a smaller file';
+    } else if (error.message.includes('fetch') || error.message.includes('Network')) {
+      userMessage = 'Connection failed. Please check your internet and try again';
+    } else {
+      userMessage = error.message || 'An error occurred. Please try again';
     }
-  }, [selectedFile, formData, agreedToTerms, validateFile, API_CONFIG]);
+    
+    setError(userMessage);
+    setIsLoading(false);
+    setLoadingStep('');
+  }
+}, [selectedFile, formData, agreedToTerms, validateFile, API_CONFIG, statusMessages]);
 
   // Auto-clear errors
   useEffect(() => {
