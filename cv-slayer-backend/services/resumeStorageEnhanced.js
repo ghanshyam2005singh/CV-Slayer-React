@@ -11,18 +11,21 @@ const logger = winston.createLogger({
     winston.format.errors({ stack: true }),
     winston.format.json()
   ),
-  transports: [
-    new winston.transports.File({ filename: 'logs/storage.log' }),
-    new winston.transports.File({ filename: 'logs/error.log', level: 'error' })
-  ]
+  transports: process.env.NODE_ENV === 'production' 
+    ? [new winston.transports.Console()] // Only console in production
+    : [
+        new winston.transports.File({ filename: 'logs/gemini-service.log' }),
+        new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+        new winston.transports.Console({ format: winston.format.simple() })
+      ]
 });
 
-// Add console logging in development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.simple()
-  }));
-}
+// Remove this duplicate console setup since it's now handled above
+// if (process.env.NODE_ENV !== 'production') {
+//   logger.add(new winston.transports.Console({
+//     format: winston.format.simple()
+//   }));
+// }
 
 /**
  * Enhanced Resume Storage Service
@@ -221,43 +224,31 @@ class ResumeStorageEnhanced {
         fileHash: crypto.createHash('md5').update(file.buffer || extractedText).digest('hex')
       },
       
-       extractedInfo: {
-      // FIXED: Correctly access personal info from the right location
-      personalInfo: analysisResult.extractedInfo?.personalInfo || 
-                    analysis.extractedInfo?.personalInfo || 
-                    this.extractBasicPersonalInfo(extractedText),
-                    
-      professionalSummary: analysisResult.extractedInfo?.professionalSummary || 
-                          analysis.extractedInfo?.professionalSummary || null,
-                          
-      skills: analysisResult.extractedInfo?.skills || 
-              analysis.extractedInfo?.skills || 
-              { technical: [], soft: [], languages: [], tools: [], frameworks: [] },
-              
-      experience: analysisResult.extractedInfo?.experience || 
-                 analysis.extractedInfo?.experience || [],
-                 
-      education: analysisResult.extractedInfo?.education || 
-                analysis.extractedInfo?.education || [],
+      extractedInfo: {
+  personalInfo: analysis.extractedInfo?.personalInfo || 
+                this.extractBasicPersonalInfo(extractedText),
                 
-      certifications: analysisResult.extractedInfo?.certifications || 
-                     analysis.extractedInfo?.certifications || [],
-                     
-      projects: analysisResult.extractedInfo?.projects || 
-               analysis.extractedInfo?.projects || [],
-               
-      awards: analysisResult.extractedInfo?.awards || 
-             analysis.extractedInfo?.awards || [],
+  professionalSummary: analysis.extractedInfo?.professionalSummary || null,
+                      
+  skills: analysis.extractedInfo?.skills || 
+          { technical: [], soft: [], languages: [], tools: [], frameworks: [] },
+          
+  experience: analysis.extractedInfo?.experience || [],
              
-      volunteerWork: analysisResult.extractedInfo?.volunteerWork || 
-                    analysis.extractedInfo?.volunteerWork || [],
-                    
-      interests: analysisResult.extractedInfo?.interests || 
-                analysis.extractedInfo?.interests || [],
+  education: analysis.extractedInfo?.education || [],
+            
+  certifications: analysis.extractedInfo?.certifications || [],
+                 
+  projects: analysis.extractedInfo?.projects || [],
+           
+  awards: analysis.extractedInfo?.awards || [],
+         
+  volunteerWork: analysis.extractedInfo?.volunteerWork || [],
                 
-      references: analysisResult.extractedInfo?.references || 
-                 analysis.extractedInfo?.references || null
-    },
+  interests: analysis.extractedInfo?.interests || [],
+            
+  references: analysis.extractedInfo?.references || null
+},
       
       analysis: {
         overallScore: analysis.score || 0,
@@ -303,37 +294,82 @@ class ResumeStorageEnhanced {
   /**
    * Extract basic personal info if not provided by AI
    */
-  extractBasicPersonalInfo(text) {
-    const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
+extractBasicPersonalInfo(text) {
+  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
   const phoneRegex = /(?:\+?1[-\.\s]?)?\(?([0-9]{3})\)?[-\.\s]?([0-9]{3})[-\.\s]?([0-9]{4})/;
   const linkedinRegex = /linkedin\.com\/in\/([a-zA-Z0-9-]+)/i;
   const githubRegex = /github\.com\/([a-zA-Z0-9-]+)/i;
-    
-    const emailMatch = text.match(emailRegex);
+  
+  const emailMatch = text.match(emailRegex);
   const phoneMatch = text.match(phoneRegex);
   const linkedinMatch = text.match(linkedinRegex);
   const githubMatch = text.match(githubRegex);
-    
-    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-    const possibleName = lines.length > 0 && lines[0].length < 50 && !lines[0].includes('@') ? lines[0] : null;
-    
-    return {
-      name: possibleName,
-    email: emailMatch ? emailMatch[0] : null,
-    phone: phoneMatch ? phoneMatch[0] : null,
-    linkedin: linkedinMatch ? `linkedin.com/in/${linkedinMatch[1]}` : null,
-    github: githubMatch ? `github.com/${githubMatch[1]}` : null,
-    address: null,
-    website: null,
+  
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  const possibleName = lines.length > 0 && lines[0].length < 50 && !lines[0].includes('@') ? lines[0] : null;
+  
+  // Extract basic address information from text
+  const addressInfo = this.extractAddressInfo(text);
+  
+  return {
+    name: possibleName || '',
+    email: emailMatch ? emailMatch[0] : '',
+    phone: phoneMatch ? phoneMatch[0] : '',
+    linkedin: linkedinMatch ? `linkedin.com/in/${linkedinMatch[1]}` : '',
+    github: githubMatch ? `github.com/${githubMatch[1]}` : '',
+    address: addressInfo, // Use extracted address info instead of null
+    website: '',
     socialProfiles: {
-      linkedin: linkedinMatch ? linkedinMatch[0] : null,
-      github: githubMatch ? githubMatch[0] : null,
-      portfolio: null,
-      website: null,
-        twitter: null
-      }
-    };
+      linkedin: linkedinMatch ? linkedinMatch[0] : '',
+      github: githubMatch ? githubMatch[0] : '',
+      portfolio: '',
+      website: '',
+      twitter: ''
+    }
+  };
+}
+
+// Add new method to extract address information (add after extractBasicPersonalInfo)
+extractAddressInfo(text) {
+  // Common address patterns
+  const cityStateRegex = /([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5})/;
+  const cityCountryRegex = /([A-Za-z\s]+),\s*([A-Za-z\s]+)$/m;
+  const streetRegex = /\d+\s+[A-Za-z\s]+(Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd)/i;
+  
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  
+  let street = '';
+  let city = '';
+  let state = '';
+  let zipCode = '';
+  let country = '';
+  
+  // Look for address patterns in text
+  for (const line of lines) {
+    const streetMatch = line.match(streetRegex);
+    const cityStateMatch = line.match(cityStateRegex);
+    
+    if (streetMatch && !street) {
+      street = streetMatch[0];
+    }
+    
+    if (cityStateMatch) {
+      city = cityStateMatch[1].trim();
+      state = cityStateMatch[2].trim();
+      zipCode = cityStateMatch[3] || '';
+    }
   }
+  
+  // Return structured address object
+  return {
+    street: street || '',
+    city: city || '',
+    state: state || '',
+    zipCode: zipCode || '',
+    country: country || '',
+    fullAddress: [street, city, state, zipCode, country].filter(Boolean).join(', ') || ''
+  };
+}
 
   /**
    * Generate basic analytics if not provided
