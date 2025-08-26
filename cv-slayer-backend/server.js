@@ -99,15 +99,18 @@ app.use(compression());
 const allowedOrigins = NODE_ENV === 'production' 
   ? [
       process.env.FRONTEND_URL,
+      'https://cv-slayer-ppnn.onrender.com', 
       'https://cv-slayer-ppnn.onrender.com/'
     ].filter(Boolean)
   : ['http://localhost:3000', 'http://localhost:3001'];
 
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow same-origin requests (when origin is undefined)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log('CORS blocked origin:', origin); // Debug log
       callback(new Error('Not allowed by CORS'));
     }
   },
