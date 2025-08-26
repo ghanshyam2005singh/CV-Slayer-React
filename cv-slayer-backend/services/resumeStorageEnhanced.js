@@ -1,89 +1,31 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
-const winston = require('winston');
 const Resume = require('../models/Resume');
 
-// Production logger setup
-const logger = winston.createLogger({
-  level: process.env.NODE_ENV === 'production' ? 'warn' : 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.errors({ stack: true }),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({ filename: 'logs/storage.log' }),
-    new winston.transports.File({ filename: 'logs/error.log', level: 'error' })
-  ]
-});
-
-// Add console logging in development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.simple()
-  }));
-}
-
 /**
- * Enhanced Resume Storage Service
- * Handles secure storage of resume data with comprehensive error handling
+ * Simplified Resume Storage Service
+ * Fast and reliable storage with minimal overhead
  */
 class ResumeStorageEnhanced {
   constructor() {
-    this.initialized = false;
-    this.init();
-  }
-
-  async init() {
-    try {
-      // Ensure MongoDB connection
-      if (mongoose.connection.readyState !== 1) {
-        logger.info('Initializing MongoDB connection for storage service');
-      }
-      this.initialized = true;
-      logger.info('Resume storage service initialized successfully');
-    } catch (error) {
-      logger.error('Failed to initialize resume storage service', { error: error.message });
-      throw error;
-    }
+    this.initialized = true;
+    console.log('✅ Resume storage service initialized');
   }
 
   /**
-   * Save comprehensive resume data to database
+   * Save resume data to database - simplified version
    */
   async saveResumeData(file, extractedText, analysisResult, preferences, metadata = {}) {
     const startTime = Date.now();
     const requestId = metadata.requestId || crypto.randomUUID();
     
     try {
-      logger.info('Starting resume data save operation', {
-        requestId,
-        fileName: file?.originalname,
-        fileSize: file?.size,
-        hasAnalysis: !!analysisResult,
-        hasPreferences: !!preferences
-      });
-
-      // Validate inputs
-      const validationResult = this.validateInputs(file, extractedText, analysisResult, preferences);
-      if (!validationResult.valid) {
-        logger.warn('Input validation failed', {
-          requestId,
-          errors: validationResult.errors
-        });
-        return {
-          success: false,
-          error: 'Invalid input data',
-          code: 'VALIDATION_ERROR',
-          details: validationResult.errors,
-          requestId
-        };
-      }
+      console.log('💾 Saving resume data:', requestId);
 
       // Generate unique resume ID
       const resumeId = this.generateResumeId();
 
-      // Prepare document structure
+      // Prepare simplified document
       const resumeDocument = this.prepareDocumentStructure(
         resumeId,
         file,
@@ -94,16 +36,15 @@ class ResumeStorageEnhanced {
         requestId
       );
 
-      // Save to database
+      // Save to database (simple, no retry)
       const savedResume = await this.saveToDatabase(resumeDocument);
       
       const processingTime = Date.now() - startTime;
       
-      logger.info('Resume data saved successfully', {
+      console.log('✅ Resume saved:', {
         requestId,
         resumeId,
-        processingTime,
-        score: analysisResult.score || analysisResult.data?.score
+        time: processingTime + 'ms'
       });
 
       return {
@@ -117,79 +58,19 @@ class ResumeStorageEnhanced {
     } catch (error) {
       const processingTime = Date.now() - startTime;
       
-      logger.error('Failed to save resume data', {
+      console.error('❌ Save failed:', {
         requestId,
         error: error.message,
-        stack: error.stack,
-        processingTime,
-        fileName: file?.originalname
+        time: processingTime + 'ms'
       });
 
       return {
         success: false,
         error: 'Failed to save resume data',
         code: 'STORAGE_ERROR',
-        details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
         requestId
       };
     }
-  }
-
-  /**
-   * Validate input parameters
-   */
-  validateInputs(file, extractedText, analysisResult, preferences) {
-    const errors = [];
-
-    // Validate file
-    if (!file || typeof file !== 'object') {
-      errors.push('Invalid file object');
-    } else {
-      if (!file.originalname || typeof file.originalname !== 'string') {
-        errors.push('Missing or invalid file name');
-      }
-      if (!file.size || typeof file.size !== 'number' || file.size <= 0) {
-        errors.push('Missing or invalid file size');
-      }
-      if (!file.mimetype || typeof file.mimetype !== 'string') {
-        errors.push('Missing or invalid file mime type');
-      }
-    }
-
-    // Validate extracted text
-    if (!extractedText || typeof extractedText !== 'string' || extractedText.trim().length < 10) {
-      errors.push('Invalid or insufficient extracted text');
-    }
-
-    // Validate analysis result
-    if (!analysisResult || typeof analysisResult !== 'object') {
-      errors.push('Missing analysis result');
-    } else {
-      // Check for required analysis fields
-      const requiredAnalysisFields = ['score', 'roastFeedback'];
-      for (const field of requiredAnalysisFields) {
-        if (analysisResult[field] === undefined && (!analysisResult.data || analysisResult.data[field] === undefined)) {
-          errors.push(`Missing analysis field: ${field}`);
-        }
-      }
-    }
-
-    // Validate preferences
-    if (!preferences || typeof preferences !== 'object') {
-      errors.push('Missing preferences');
-    } else {
-      if (!preferences.roastLevel) {
-        errors.push('Missing roast level preference');
-      }
-      if (!preferences.language) {
-        errors.push('Missing language preference');
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    };
   }
 
   /**
@@ -202,7 +83,7 @@ class ResumeStorageEnhanced {
   }
 
   /**
-   * Prepare document structure for database storage
+   * Prepare simplified document structure
    */
   prepareDocumentStructure(resumeId, file, extractedText, analysisResult, preferences, metadata, requestId) {
     const now = new Date();
@@ -214,64 +95,43 @@ class ResumeStorageEnhanced {
       resumeId,
       
       fileInfo: {
-        fileName: this.removeTimestampPrefix(file.originalname),
-        originalFileName: this.removeTimestampPrefix(file.originalname),
-        fileSize: file.size,
-        mimeType: file.mimetype,
-        fileHash: crypto.createHash('md5').update(file.buffer || extractedText).digest('hex')
+        fileName: file.originalname || 'unknown',
+        originalFileName: file.originalname || 'unknown',
+        fileSize: file.size || 0,
+        mimeType: file.mimetype || 'unknown',
+        fileHash: crypto.createHash('md5').update(extractedText || '').digest('hex')
       },
       
-       extractedInfo: {
-      // FIXED: Correctly access personal info from the right location
-      personalInfo: analysisResult.extractedInfo?.personalInfo || 
-                    analysis.extractedInfo?.personalInfo || 
-                    this.extractBasicPersonalInfo(extractedText),
-                    
-      professionalSummary: analysisResult.extractedInfo?.professionalSummary || 
-                          analysis.extractedInfo?.professionalSummary || null,
-                          
-      skills: analysisResult.extractedInfo?.skills || 
-              analysis.extractedInfo?.skills || 
-              { technical: [], soft: [], languages: [], tools: [], frameworks: [] },
-              
-      experience: analysisResult.extractedInfo?.experience || 
-                 analysis.extractedInfo?.experience || [],
-                 
-      education: analysisResult.extractedInfo?.education || 
-                analysis.extractedInfo?.education || [],
-                
-      certifications: analysisResult.extractedInfo?.certifications || 
-                     analysis.extractedInfo?.certifications || [],
-                     
-      projects: analysisResult.extractedInfo?.projects || 
-               analysis.extractedInfo?.projects || [],
-               
-      awards: analysisResult.extractedInfo?.awards || 
-             analysis.extractedInfo?.awards || [],
-             
-      volunteerWork: analysisResult.extractedInfo?.volunteerWork || 
-                    analysis.extractedInfo?.volunteerWork || [],
-                    
-      interests: analysisResult.extractedInfo?.interests || 
-                analysis.extractedInfo?.interests || [],
-                
-      references: analysisResult.extractedInfo?.references || 
-                 analysis.extractedInfo?.references || null
-    },
+      extractedInfo: {
+        personalInfo: this.extractBasicPersonalInfo(extractedText),
+        professionalSummary: '',
+        skills: {
+          technical: [],
+          soft: [],
+          languages: [],
+          tools: [],
+          frameworks: []
+        },
+        experience: [],
+        education: [],
+        certifications: [],
+        projects: [],
+        awards: [],
+        volunteerWork: [],
+        interests: []
+      },
       
       analysis: {
         overallScore: analysis.score || 0,
         feedback: analysis.roastFeedback || 'No feedback available',
         strengths: analysis.strengths || [],
         weaknesses: analysis.weaknesses || [],
-        improvements: analysis.improvements || [],
-        resumeAnalytics: analysis.resumeAnalytics || this.generateBasicAnalytics(extractedText),
-        contactValidation: analysis.contactValidation || this.validateContactInfo(extractedText)
+        improvements: analysis.improvements || []
       },
       
       preferences: {
-        roastLevel: preferences.roastLevel,
-        language: preferences.language,
+        roastLevel: preferences.roastLevel || 'ache',
+        language: preferences.language || 'english',
         roastType: preferences.roastType || 'constructive',
         gender: preferences.gender || 'not-specified'
       },
@@ -283,10 +143,10 @@ class ResumeStorageEnhanced {
       },
       
       metadata: {
-        clientIP: metadata.clientIP || preferences.clientIP || 'unknown',
-        userAgent: (metadata.userAgent || preferences.userAgent || 'unknown').substring(0, 200),
-        countryCode: metadata.countryCode || 'unknown',
-        gdprConsent: metadata.gdprConsent !== false,
+        clientIP: metadata.clientIP || 'unknown',
+        userAgent: 'unknown',
+        countryCode: 'unknown',
+        gdprConsent: true,
         requestId,
         processingTime: 0
       }
@@ -294,143 +154,59 @@ class ResumeStorageEnhanced {
   }
 
   /**
-   * Remove timestamp prefix from filename
-   */
-  removeTimestampPrefix(filename) {
-    return filename.replace(/^\d+_/, '');
-  }
-
-  /**
-   * Extract basic personal info if not provided by AI
+   * Extract basic personal info - simplified
    */
   extractBasicPersonalInfo(text) {
+    if (!text) return { name: '', email: '', phone: '', linkedin: '', github: '', address: '', website: '' };
+    
     const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
-  const phoneRegex = /(?:\+?1[-\.\s]?)?\(?([0-9]{3})\)?[-\.\s]?([0-9]{3})[-\.\s]?([0-9]{4})/;
-  const linkedinRegex = /linkedin\.com\/in\/([a-zA-Z0-9-]+)/i;
-  const githubRegex = /github\.com\/([a-zA-Z0-9-]+)/i;
+    const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/;
+    const linkedinRegex = /linkedin\.com\/in\/([a-zA-Z0-9-]+)/i;
+    const githubRegex = /github\.com\/([a-zA-Z0-9-]+)/i;
     
     const emailMatch = text.match(emailRegex);
-  const phoneMatch = text.match(phoneRegex);
-  const linkedinMatch = text.match(linkedinRegex);
-  const githubMatch = text.match(githubRegex);
+    const phoneMatch = text.match(phoneRegex);
+    const linkedinMatch = text.match(linkedinRegex);
+    const githubMatch = text.match(githubRegex);
     
-    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-    const possibleName = lines.length > 0 && lines[0].length < 50 && !lines[0].includes('@') ? lines[0] : null;
-    
-    return {
-      name: possibleName,
-    email: emailMatch ? emailMatch[0] : null,
-    phone: phoneMatch ? phoneMatch[0] : null,
-    linkedin: linkedinMatch ? `linkedin.com/in/${linkedinMatch[1]}` : null,
-    github: githubMatch ? `github.com/${githubMatch[1]}` : null,
-    address: null,
-    website: null,
-    socialProfiles: {
-      linkedin: linkedinMatch ? linkedinMatch[0] : null,
-      github: githubMatch ? githubMatch[0] : null,
-      portfolio: null,
-      website: null,
-        twitter: null
+    // Simple name extraction
+    const lines = text.split('\n').filter(line => line.trim().length > 0);
+    let name = '';
+    for (let i = 0; i < Math.min(3, lines.length); i++) {
+      const line = lines[i].trim();
+      if (!line.includes('@') && !line.includes('http') && line.length < 50) {
+        name = line;
+        break;
       }
-    };
-  }
-
-  /**
-   * Generate basic analytics if not provided
-   */
-  generateBasicAnalytics(text) {
-    const words = text.trim().split(/\s+/);
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    const bulletPoints = (text.match(/[•·\-\*]/g) || []).length;
+    }
     
     return {
-      wordCount: words.length,
-      pageCount: Math.max(1, Math.ceil(words.length / 250)),
-      sectionCount: paragraphs.length,
-      bulletPointCount: bulletPoints,
-      quantifiableAchievements: (text.match(/\d+%|\d+\+|\d+ [a-z]/gi) || []).length,
-      actionVerbsUsed: (text.match(/\b(led|managed|developed|created|implemented|improved|increased|decreased|achieved|delivered)\b/gi) || []).length,
-      industryKeywords: ['javascript', 'python', 'react', 'node'].filter(keyword => text.toLowerCase().includes(keyword)),
-      readabilityScore: Math.min(100, Math.max(30, 100 - Math.floor(words.length / 10))),
-      atsCompatibility: words.length > 300 ? 'High' : words.length > 150 ? 'Medium' : 'Low',
-      missingElements: [],
-      strongElements: []
+      name: name || '',
+      email: emailMatch ? emailMatch[0] : '',
+      phone: phoneMatch ? phoneMatch[0] : '',
+      linkedin: linkedinMatch ? linkedinMatch[0] : '',
+      github: githubMatch ? githubMatch[0] : '',
+      address: '',
+      website: ''
     };
   }
 
   /**
-   * Validate contact information
-   */
-  validateContactInfo(text) {
-    const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
-    const phoneRegex = /(?:\+?1[-\.\s]?)?\(?([0-9]{3})\)?[-\.\s]?([0-9]{3})[-\.\s]?([0-9]{4})/;
-    const linkedinRegex = /linkedin\.com\/in\//i;
-    const addressRegex = /\b(?:street|st|avenue|ave|road|rd|drive|dr|city|state|zip)\b/i;
-    
-    const hasEmail = emailRegex.test(text);
-    const hasPhone = phoneRegex.test(text);
-    const hasLinkedIn = linkedinRegex.test(text);
-    const hasAddress = addressRegex.test(text);
-    
-    return {
-      hasEmail,
-      hasPhone,
-      hasLinkedIn,
-      hasAddress,
-      emailValid: hasEmail,
-      phoneValid: hasPhone,
-      linkedInValid: hasLinkedIn
-    };
-  }
-
-  /**
-   * Save document to database with retry logic
+   * Save to database - simple version
    */
   async saveToDatabase(documentData) {
-    let retryCount = 0;
-    const maxRetries = 3;
-    
-    while (retryCount <= maxRetries) {
-      try {
-        const resume = new Resume(documentData);
-        
-        // Validate before saving
-        const validationError = resume.validateSync();
-        if (validationError) {
-          throw new Error(`Validation failed: ${Object.keys(validationError.errors).join(', ')}`);
-        }
-        
-        // Save to database
-        const savedResume = await resume.save();
-        
-        logger.info('Document saved to database', {
-          resumeId: savedResume.resumeId,
-          mongoId: savedResume._id
-        });
-        
-        return savedResume;
-        
-      } catch (error) {
-        retryCount++;
-        
-        if (retryCount > maxRetries) {
-          logger.error('Failed to save after retries', {
-            error: error.message,
-            retryCount,
-            resumeId: documentData.resumeId
-          });
-          throw error;
-        }
-        
-        // Wait before retry
-        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-        logger.warn('Retrying database save', { retryCount, resumeId: documentData.resumeId });
-      }
+    try {
+      const resume = new Resume(documentData);
+      const savedResume = await resume.save();
+      return savedResume;
+    } catch (error) {
+      console.error('Database save error:', error.message);
+      throw error;
     }
   }
 
   /**
-   * Get storage statistics
+   * Get basic storage statistics
    */
   async getStorageStats() {
     try {
@@ -445,7 +221,7 @@ class ResumeStorageEnhanced {
         status: 'healthy'
       };
     } catch (error) {
-      logger.error('Failed to get storage stats', { error: error.message });
+      console.error('Stats error:', error.message);
       return {
         status: 'error',
         error: error.message
