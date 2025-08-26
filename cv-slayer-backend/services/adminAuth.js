@@ -12,14 +12,18 @@ const logger = winston.createLogger({
     winston.format.errors({ stack: true }),
     winston.format.json()
   ),
-  transports: process.env.NODE_ENV === 'production' 
-    ? [new winston.transports.Console()] // Only console in production
-    : [
-        new winston.transports.File({ filename: 'logs/admin-auth.log' }),
-        new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
-        new winston.transports.Console({ format: winston.format.simple() })
-      ]
+  transports: [
+    new winston.transports.File({ filename: 'logs/admin-auth.log' }),
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' })
+  ]
 });
+
+// Only add console logging in development
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.simple()
+  }));
+}
 
 // Admin schema for MongoDB with enhanced security
 const adminSchema = new mongoose.Schema({
