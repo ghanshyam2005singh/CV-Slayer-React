@@ -1,26 +1,18 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import './App.css';
 import Navbar from './components/Navbar';
 import ResultsDisplay from './components/ResultsDisplay';
 import AdminPanel from './components/AdminPanel';
 
-// Error Boundary Component
+// Simple Error Boundary
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false };
   }
 
   static getDerivedStateFromError(error) {
     return { hasError: true };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    // Only log in development
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Error caught by boundary:', error, errorInfo);
-    }
-    this.setState({ error: error });
   }
 
   render() {
@@ -30,11 +22,8 @@ class ErrorBoundary extends React.Component {
           <div className="error-content">
             <div className="error-icon">⚠️</div>
             <h2>Something went wrong</h2>
-            <p>We apologize for the inconvenience. Please refresh the page and try again.</p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="error-reload-btn"
-            >
+            <p>Please refresh the page and try again.</p>
+            <button onClick={() => window.location.reload()} className="error-reload-btn">
               🔄 Reload Page
             </button>
           </div>
@@ -53,7 +42,6 @@ function App() {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
-  // Removed unused performanceMetrics state
   const [formData, setFormData] = useState({
     gender: 'male',
     roastLevel: 'pyar',
@@ -61,40 +49,32 @@ function App() {
     language: 'english'
   });
 
-  // Production API Configuration
-const API_CONFIG = useMemo(() => ({
-  baseURL: process.env.NODE_ENV === 'production' 
-    ? process.env.REACT_APP_API_URL || 'https://cv-slayer.onrender.com'
-    : process.env.REACT_APP_API_URL || 'http://localhost:5000',
-  timeout: 180000,
-  maxFileSize: 10 * 1024 * 1024,
-  allowedTypes: [
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/msword'
-  ]
-}), []);
+  // Simple API config
+  const API_CONFIG = useMemo(() => ({
+    baseURL: process.env.NODE_ENV === 'production' 
+      ? process.env.REACT_APP_API_URL || 'https://cv-slayer.onrender.com'
+      : 'http://localhost:5000',
+    timeout: 120000,
+    maxFileSize: 10 * 1024 * 1024
+  }), []);
 
-  // Enhanced file validation
+  // Simple file validation
   const validateFile = useCallback((file) => {
     if (!file) return 'Please select a resume file';
     
-    if (!API_CONFIG.allowedTypes.includes(file.type)) {
-      return 'Please upload only PDF or Word documents (.pdf, .doc, .docx)';
+    const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'];
+    if (!allowedTypes.includes(file.type)) {
+      return 'Please upload PDF or Word documents only';
     }
     
     if (file.size > API_CONFIG.maxFileSize) {
-      return `File size must be less than ${API_CONFIG.maxFileSize / (1024 * 1024)}MB`;
-    }
-    
-    if (file.size === 0) {
-      return 'Selected file appears to be empty';
+      return 'File too large (max 10MB)';
     }
     
     return null;
-  }, [API_CONFIG]);
+  }, [API_CONFIG.maxFileSize]);
 
-  // Secure file change handler
+  // Simple file handler
   const handleFileChange = useCallback((e) => {
     const file = e.target.files[0];
     setError('');
@@ -113,24 +93,13 @@ const API_CONFIG = useMemo(() => ({
     }
   }, [validateFile]);
 
-  // Secure input validation
+  // Simple input handler
   const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
-    
-    const validValues = {
-      gender: ['male', 'female', 'other'],
-      roastLevel: ['pyar', 'ache', 'dhang'],
-      roastType: ['funny', 'serious', 'sarcastic', 'motivational'],
-      language: ['english', 'hindi', 'hinglish']
-    };
-    
-    if (validValues[name]?.includes(value)) {
-      setFormData(prev => ({ ...prev, [name]: value }));
-      setError('');
-    }
+    setFormData(prev => ({ ...prev, [name]: value }));
   }, []);
 
-  // Complete state reset
+  // Simple reset
   const handleReset = useCallback(() => {
     setResults(null);
     setSelectedFile(null);
@@ -148,169 +117,87 @@ const API_CONFIG = useMemo(() => ({
     if (fileInput) fileInput.value = '';
   }, []);
 
- const statusMessages = useMemo(() => ({
-  400: 'Invalid file or request',
-  401: 'Authentication required',
-  403: 'Access forbidden',
-  409: 'This resume file has already been analyzed. Please upload a different file.',
-  413: 'File too large (max 10MB)',
-  429: 'Too many requests. Please wait and try again',
-  500: 'Server error. Please try again later',
-  502: 'Service temporarily unavailable',
-  503: 'Service temporarily unavailable',
-  504: 'Request timeout. Please try again'
-}), []);
-
-  // Production-ready submit handler
-const handleSubmit = useCallback(async (e) => {
-  e.preventDefault();
-  
-  // const startTime = performance.now();
-
-  if (!agreedToTerms) {
-    setError('Please accept the Terms & Conditions to continue');
-    return;
-  }
-  
-  if (!selectedFile) {
-    setError('Please select a resume file');
-    return;
-  }
-  
-  const validationError = validateFile(selectedFile);
-  if (validationError) {
-    setError(validationError);
-    return;
-  }
-  
-  setIsLoading(true);
-  setError('');
-  setLoadingStep('uploading');
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.timeout);
-
-  try {
-    const formDataToSend = new FormData();
-    formDataToSend.append('resume', selectedFile);
-    formDataToSend.append('gender', formData.gender);
-    formDataToSend.append('roastLevel', formData.roastLevel);
-    formDataToSend.append('roastType', formData.roastType);
-    formDataToSend.append('language', formData.language);
-    formDataToSend.append('consentGiven', 'true');
-    formDataToSend.append('termsAccepted', 'true');
-
-    setLoadingStep('analyzing');
-
-    const apiUrl = `${API_CONFIG.baseURL}/api/resume/analyze`;
+  // Simple submit handler
+  const handleSubmit = useCallback(async (e) => {
+    e.preventDefault();
     
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      body: formDataToSend,
-      signal: controller.signal,
-      headers: {
-        'Accept': 'application/json'
-      }
-    });
-
-    clearTimeout(timeoutId);
-    setLoadingStep('processing');
-
-    if (!response.ok) {
-      let errorMessage = 'Analysis failed. Please try again.';
-      
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error?.message || errorData.message || errorMessage;
-      } catch {
-        errorMessage = statusMessages[response.status] || `Error ${response.status}`;
-      }
-      
-      throw new Error(errorMessage);
+    if (!agreedToTerms) {
+      setError('Please accept the Terms & Conditions');
+      return;
     }
-
-    const responseText = await response.text();
-    let result;
     
+    if (!selectedFile) {
+      setError('Please select a resume file');
+      return;
+    }
+    
+    const validationError = validateFile(selectedFile);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    
+    setIsLoading(true);
+    setError('');
+    setLoadingStep('uploading');
+
     try {
-      result = JSON.parse(responseText);
-    } catch {
-      throw new Error('Invalid server response');
-    }
+      const formDataToSend = new FormData();
+      formDataToSend.append('resume', selectedFile);
+      formDataToSend.append('gender', formData.gender);
+      formDataToSend.append('roastLevel', formData.roastLevel);
+      formDataToSend.append('roastType', formData.roastType);
+      formDataToSend.append('language', formData.language);
+      formDataToSend.append('consentGiven', 'true');
 
-    // Handle both nested and flat response structures
-    let processedData;
-    if (result.data) {
-      processedData = result.data;
-    } else if (result.success !== false) {
-      processedData = {
-        score: result.score,
-        roastFeedback: result.roastFeedback,
-        improvements: result.improvements || [],
-        strengths: result.strengths || [],
-        weaknesses: result.weaknesses || []
+      setLoadingStep('analyzing');
+
+      const response = await fetch(`${API_CONFIG.baseURL}/api/resume/analyze`, {
+        method: 'POST',
+        body: formDataToSend
+      });
+
+      setLoadingStep('processing');
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: Please try again`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error?.message || 'Analysis failed');
+      }
+
+      const processedData = result.data || result;
+      
+      const finalResults = {
+        ...processedData,
+        originalFileName: selectedFile.name,
+        score: Number(processedData.score) || 0,
+        roastFeedback: processedData.roastFeedback || '',
+        improvements: processedData.improvements || [],
+        strengths: processedData.strengths || [],
+        weaknesses: processedData.weaknesses || []
       };
-    } else {
-      throw new Error(result.error?.message || 'Analysis failed');
-    }
 
-    if (!processedData.roastFeedback && !processedData.score) {
-      throw new Error('Incomplete analysis received');
-    }
+      setLoadingStep('complete');
+      setTimeout(() => {
+        setResults(finalResults);
+        setIsLoading(false);
+        setLoadingStep('');
+      }, 1000);
 
-    const finalResults = {
-      ...processedData,
-      originalFileName: selectedFile.name,
-      score: Number(processedData.score) || 0,
-      roastFeedback: processedData.roastFeedback || '',
-      improvements: Array.isArray(processedData.improvements) ? processedData.improvements : [],
-      strengths: Array.isArray(processedData.strengths) ? processedData.strengths : [],
-      weaknesses: Array.isArray(processedData.weaknesses) ? processedData.weaknesses : []
-    };
-
-    // Fix: Correct performance timing
-    // Removed setPerformanceMetrics as it's unused
-
-    setLoadingStep('complete');
-    
-    setTimeout(() => {
-      setResults(finalResults);
+    } catch (error) {
+      console.error('Submit error:', error);
+      setError(error.message || 'An error occurred. Please try again');
       setIsLoading(false);
       setLoadingStep('');
-    }, 1000);
-
-  } catch (error) {
-    clearTimeout(timeoutId);
-    
-    let userMessage;
-    if (error.name === 'AbortError') {
-      userMessage = 'Request timed out. Please try with a smaller file';
-    } else if (error.message.includes('fetch') || error.message.includes('Network')) {
-      userMessage = 'Connection failed. Please check your internet and try again';
-    } else {
-      userMessage = error.message || 'An error occurred. Please try again';
     }
-    
-    setError(userMessage);
-    setIsLoading(false);
-    setLoadingStep('');
-  }
-}, [selectedFile, formData, agreedToTerms, validateFile, API_CONFIG, statusMessages]);
-
-  // Auto-clear errors
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(''), 8000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
+  }, [selectedFile, formData, agreedToTerms, validateFile, API_CONFIG.baseURL]);
 
   // Admin route check
-  const isAdminRoute = useMemo(() => {
-    return window.location.pathname.startsWith('/admin');
-  }, []);
-  
-  if (isAdminRoute) {
+  if (window.location.pathname.startsWith('/admin')) {
     return (
       <ErrorBoundary>
         <AdminPanel />
@@ -336,27 +223,12 @@ const handleSubmit = useCallback(async (e) => {
   if (isLoading) {
     const getLoadingMessage = () => {
       const messages = {
-        hindi: {
-          uploading: 'आपका resume upload हो रहा है...',
-          analyzing: 'AI आपका resume analyze कर रहा है...',
-          processing: 'Feedback तैयार हो रहा है...',
-          complete: 'Analysis पूरा हो गया!'
-        },
-        hinglish: {
-          uploading: 'Resume upload ho raha hai...',
-          analyzing: 'AI analysis kar raha hai...',
-          processing: 'Feedback ready kar rahe hain...',
-          complete: 'Bas ho gaya!'
-        },
-        english: {
-          uploading: 'Uploading your resume...',
-          analyzing: 'AI is analyzing your resume...',
-          processing: 'Generating personalized feedback...',
-          complete: 'Analysis complete!'
-        }
+        uploading: 'Uploading your resume...',
+        analyzing: 'AI is analyzing your resume...',
+        processing: 'Generating feedback...',
+        complete: 'Analysis complete!'
       };
-      
-      return messages[formData.language]?.[loadingStep] || messages.english[loadingStep] || 'Processing...';
+      return messages[loadingStep] || 'Processing...';
     };
 
     const getProgressPercentage = () => {
@@ -365,11 +237,9 @@ const handleSubmit = useCallback(async (e) => {
     };
 
     return (
-      
       <ErrorBoundary>
         <div className="app">
           <Navbar />
-          
           <main className="loading-container">
             <div className="loading-wrapper">
               <div className="loading-animation">
@@ -386,26 +256,6 @@ const handleSubmit = useCallback(async (e) => {
                       style={{ width: `${getProgressPercentage()}%` }}
                     />
                   </div>
-                  
-                  <div className="loading-steps">
-                    {['uploading', 'analyzing', 'processing', 'complete'].map((step, index) => (
-                      <div 
-                        key={step}
-                        className={`step ${loadingStep === step || index < ['uploading', 'analyzing', 'processing', 'complete'].indexOf(loadingStep) ? 'active' : ''}`}
-                      >
-                        <div className="step-icon">
-                          {step === 'uploading' && '📤'}
-                          {step === 'analyzing' && '🔍'}
-                          {step === 'processing' && '🤖'}
-                          {step === 'complete' && '✅'}
-                        </div>
-                        <span className="step-label">
-                          {step.charAt(0).toUpperCase() + step.slice(1)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  
                   <div className="progress-percentage">
                     {getProgressPercentage()}%
                   </div>
@@ -414,41 +264,6 @@ const handleSubmit = useCallback(async (e) => {
               
               <div className="loading-content">
                 <h2 className="loading-title">{getLoadingMessage()}</h2>
-                
-                <div className="roast-preview">
-                  {formData.roastLevel === 'dhang' && (
-                    <div className="preview-card savage">
-                      <div className="preview-icon">😈</div>
-                      <p>
-                        {formData.language === 'hindi' && "तैयार हो जाओ कड़वी सच्चाई के लिए!"}
-                        {formData.language === 'hinglish' && "Brutal honesty incoming, brace yourself!"}
-                        {formData.language === 'english' && "Preparing some brutal honesty..."}
-                      </p>
-                    </div>
-                  )}
-                  
-                  {formData.roastLevel === 'ache' && (
-                    <div className="preview-card balanced">
-                      <div className="preview-icon">🤔</div>
-                      <p>
-                        {formData.language === 'hindi' && "संतुलित feedback तैयार कर रहे हैं"}
-                        {formData.language === 'hinglish' && "Balanced feedback aa raha hai"}
-                        {formData.language === 'english' && "Preparing balanced feedback..."}
-                      </p>
-                    </div>
-                  )}
-                  
-                  {formData.roastLevel === 'pyar' && (
-                    <div className="preview-card gentle">
-                      <div className="preview-icon">😊</div>
-                      <p>
-                        {formData.language === 'hindi' && "प्यार से feedback दे रहे हैं"}
-                        {formData.language === 'hinglish' && "Gentle feedback ban raha hai"}
-                        {formData.language === 'english' && "Preparing gentle feedback..."}
-                      </p>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           </main>
@@ -476,7 +291,7 @@ const handleSubmit = useCallback(async (e) => {
                   <span className="title-sub">Resume Roaster</span>
                 </h1>
                 <p className="hero-subtitle">
-                  Get brutally honest AI-powered feedback on your resume with humor, insights, and actionable improvements
+                  Get AI-powered feedback on your resume with humor and actionable improvements
                 </p>
                 <div className="hero-features">
                   <div className="feature-tag">🤖 AI-Powered</div>
@@ -511,32 +326,32 @@ const handleSubmit = useCallback(async (e) => {
               <div className="feature-card">
                 <div className="feature-icon">🤖</div>
                 <h3>AI-Powered Analysis</h3>
-                <p>Advanced machine learning analyzes content, structure, and ATS compatibility</p>
+                <p>Advanced AI analyzes content, structure, and ATS compatibility</p>
               </div>
               <div className="feature-card">
                 <div className="feature-icon">🎭</div>
                 <h3>Multiple Personalities</h3>
-                <p>Choose from gentle guidance to brutal honesty - whatever motivates you</p>
+                <p>Choose from gentle guidance to brutal honesty</p>
               </div>
               <div className="feature-card">
                 <div className="feature-icon">🌍</div>
                 <h3>Multi-Language Support</h3>
-                <p>Get feedback in English, Hindi, or Hinglish for better understanding</p>
+                <p>Get feedback in English, Hindi, or Hinglish</p>
               </div>
               <div className="feature-card">
                 <div className="feature-icon">💡</div>
                 <h3>Actionable Insights</h3>
-                <p>Specific, implementable suggestions to improve your resume immediately</p>
+                <p>Specific suggestions to improve your resume</p>
               </div>
               <div className="feature-card">
                 <div className="feature-icon">📊</div>
                 <h3>ATS Optimization</h3>
-                <p>Ensure your resume passes Applicant Tracking Systems</p>
+                <p>Ensure your resume passes tracking systems</p>
               </div>
               <div className="feature-card">
                 <div className="feature-icon">🔒</div>
                 <h3>Privacy First</h3>
-                <p>Your data is processed securely and never shared</p>
+                <p>Your data is processed securely</p>
               </div>
             </div>
           </div>
@@ -555,7 +370,6 @@ const handleSubmit = useCallback(async (e) => {
                     <button 
                       className="error-close"
                       onClick={() => setError('')}
-                      aria-label="Close error"
                     >
                       ×
                     </button>
@@ -615,9 +429,9 @@ const handleSubmit = useCallback(async (e) => {
                         onChange={handleInputChange}
                         disabled={isLoading}
                       >
-                        <option value="pyar">😊 Gentle (Supportive)</option>
-                        <option value="ache">🤔 Balanced (Honest)</option>
-                        <option value="dhang">😈 Savage (Brutal)</option>
+                        <option value="pyar">😊 Gentle</option>
+                        <option value="ache">🤔 Balanced</option>
+                        <option value="dhang">😈 Savage</option>
                       </select>
                     </div>
                   </div>
@@ -709,18 +523,18 @@ const handleSubmit = useCallback(async (e) => {
               <div className="modal-body">
                 <div className="terms-content">
                   <section>
-                    <h4>🔐 Privacy & Data Processing</h4>
-                    <p>Your resume is processed temporarily for analysis. Files are automatically deleted after processing. We use industry-standard security measures to protect your data.</p>
+                    <h4>🔐 Privacy & Data</h4>
+                    <p>Your resume is processed temporarily for analysis. Files are deleted after processing.</p>
                   </section>
 
                   <section>
                     <h4>🤖 AI Analysis</h4>
-                    <p>We use advanced AI to analyze your resume content and provide feedback. Your data helps improve our service through anonymized machine learning.</p>
+                    <p>We use AI to analyze your resume and provide feedback.</p>
                   </section>
 
                   <section>
                     <h4>📞 Contact</h4>
-                    <p>For questions about our services: outlercodie.com@gmail.com</p>
+                    <p>Questions? Email: outlercodie.com@gmail.com</p>
                   </section>
                 </div>
               </div>
@@ -754,36 +568,36 @@ const handleSubmit = useCallback(async (e) => {
                 <div className="step-number">1</div>
                 <div className="step-icon">📤</div>
                 <h3>Upload</h3>
-                <p>Upload your resume securely</p>
+                <p>Upload your resume</p>
               </div>
               <div className="step-card">
                 <div className="step-number">2</div>
                 <div className="step-icon">⚙️</div>
                 <h3>Customize</h3>
-                <p>Choose your roasting preferences</p>
+                <p>Choose preferences</p>
               </div>
               <div className="step-card">
                 <div className="step-number">3</div>
                 <div className="step-icon">🤖</div>
                 <h3>Analyze</h3>
-                <p>AI processes and analyzes</p>
+                <p>AI analyzes content</p>
               </div>
               <div className="step-card">
                 <div className="step-number">4</div>
                 <div className="step-icon">📊</div>
                 <h3>Results</h3>
-                <p>Get detailed feedback</p>
+                <p>Get feedback</p>
               </div>
             </div>
           </div>
         </section>
 
         {/* Sample Results */}
-        <section id="examples"  className="sample-results">
+        <section id="examples" className="sample-results">
           <div className="container">
             <div className="section-header">
               <h2>Sample Roasts</h2>
-              <p>See what different styles look like</p>
+              <p>See different feedback styles</p>
             </div>
             <div className="samples-grid">
               <div className="sample-card funny">
@@ -792,11 +606,8 @@ const handleSubmit = useCallback(async (e) => {
                   <span className="sample-level">Gentle</span>
                 </div>
                 <blockquote>
-                  "Your resume says 'Excel expert' but I bet you still Google how to make pie charts! 😅 Let's add some actual numbers to back up those claims."
+                  "Your resume says 'Excel expert' but I bet you still Google how to make pie charts! 😅"
                 </blockquote>
-                <div className="sample-footer">
-                  <strong>Focus:</strong> Humor with constructive feedback
-                </div>
               </div>
               
               <div className="sample-card savage">
@@ -805,11 +616,8 @@ const handleSubmit = useCallback(async (e) => {
                   <span className="sample-level">Brutal</span>
                 </div>
                 <blockquote>
-                  "Bhai, tumhara resume dekh ke lagta hai ChatGPT ne 5 minute mein banaya hai. Itna generic content dekh ke recruiter ko neend aa jayegi!"
+                  "This resume looks like ChatGPT made it in 5 minutes. Way too generic!"
                 </blockquote>
-                <div className="sample-footer">
-                  <strong>Focus:</strong> Brutal honesty with real talk
-                </div>
               </div>
             </div>
           </div>
@@ -822,24 +630,11 @@ const handleSubmit = useCallback(async (e) => {
               <div className="footer-section">
                 <h3>CV Slayer</h3>
                 <p>Making resumes better, one roast at a time.</p>
-                <div className="footer-links">
-                  <button onClick={() => setShowTermsModal(true)}>
-                    Privacy Policy
-                  </button>
-                  <button onClick={() => setShowTermsModal(true)}>
-                    Terms of Service
-                  </button>
-                </div>
               </div>
               <div className="footer-section">
                 <h4>Contact</h4>
                 <p>outlercodie.com@gmail.com</p>
                 <p><a href='https://iron-industry.tech'>Iron Industry</a></p>
-              </div>
-              <div className="footer-section">
-                <h4>Iron Industry</h4>
-                <p>Building innovative solutions</p>
-                <p>🔒 Your data is secure</p>
               </div>
             </div>
             <div className="footer-bottom">

@@ -1,27 +1,25 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import './ResultsDisplay.css';
 
 const ResultsDisplay = ({ results, onReset }) => {
   const [activeTab, setActiveTab] = useState('roast');
-  const [isSharing, setIsSharing] = useState(false);
-  const [isPrinting, setIsPrinting] = useState(false);
-  const [error, setError] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [toasts, setToasts] = useState([]);
 
+  // Simple decode function
   function decodeHtmlEntities(text) {
-  const txt = document.createElement('textarea');
-  txt.innerHTML = text;
-  return txt.value;
-}
+    const txt = document.createElement('textarea');
+    txt.innerHTML = text;
+    return txt.value;
+  }
 
-  // Score calculation with validation
+  // Simple score calculation
   const sanitizedScore = useMemo(() => {
     if (!results || !results.score) return 0;
     const numScore = Number(results.score);
     return isNaN(numScore) ? 0 : Math.max(0, Math.min(100, Math.round(numScore)));
   }, [results]);
 
+  // Simple file name
   const sanitizedFileName = useMemo(() => {
     if (!results || !results.originalFileName) return 'Unknown File';
     const fileName = results.originalFileName;
@@ -31,7 +29,7 @@ const ResultsDisplay = ({ results, onReset }) => {
       fileName;
   }, [results]);
 
-  // Validate and sanitize improvements array
+  // Simple improvements validation
   const validImprovements = useMemo(() => {
     if (!results || !Array.isArray(results.improvements)) return [];
     
@@ -42,24 +40,24 @@ const ResultsDisplay = ({ results, onReset }) => {
           ? improvement.priority 
           : 'medium',
         title: typeof improvement.title === 'string' 
-          ? improvement.title.replace(/[<>]/g, '').substring(0, 100) 
+          ? improvement.title.substring(0, 100) 
           : 'Improvement',
         description: typeof improvement.description === 'string' 
-          ? improvement.description.replace(/[<>]/g, '').substring(0, 300) 
+          ? improvement.description.substring(0, 300) 
           : '',
         example: typeof improvement.example === 'string' 
-          ? improvement.example.replace(/[<>]/g, '').substring(0, 200) 
+          ? improvement.example.substring(0, 200) 
           : ''
       }))
       .slice(0, 10);
   }, [results]);
 
-  // Validate and sanitize strengths/weaknesses
+  // Simple strengths/weaknesses
   const validStrengths = useMemo(() => {
     if (!results || !Array.isArray(results.strengths)) return [];
     return results.strengths
       .filter(item => typeof item === 'string' && item.trim().length > 0)
-      .map(item => item.replace(/[<>]/g, '').substring(0, 150))
+      .map(item => item.substring(0, 150))
       .slice(0, 8);
   }, [results]);
 
@@ -67,32 +65,16 @@ const ResultsDisplay = ({ results, onReset }) => {
     if (!results || !Array.isArray(results.weaknesses)) return [];
     return results.weaknesses
       .filter(item => typeof item === 'string' && item.trim().length > 0)
-      .map(item => item.replace(/[<>]/g, '').substring(0, 150))
+      .map(item => item.substring(0, 150))
       .slice(0, 8);
   }, [results]);
 
-  // Toast management system
-  const addToast = useCallback((message, type = 'info', duration = 4000) => {
-    const id = Date.now() + Math.random();
-    const newToast = { id, message, type, duration };
-    
-    setToasts(prev => [...prev, newToast]);
-    
-    setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id));
-    }, duration);
-  }, []);
-
-  const removeToast = useCallback((id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id));
-  }, []);
-
-  // Score utilities with clean colors
+  // Simple score utilities
   const getScoreColor = useCallback((score) => {
     const validScore = Number(score) || 0;
-    if (validScore >= 80) return '#2ecc71'; // Clean green
-    if (validScore >= 60) return '#f39c12'; // Clean orange
-    return '#e74c3c'; // Clean red
+    if (validScore >= 80) return '#2ecc71';
+    if (validScore >= 60) return '#f39c12';
+    return '#e74c3c';
   }, []);
 
   const getScoreEmoji = useCallback((score) => {
@@ -109,69 +91,27 @@ const ResultsDisplay = ({ results, onReset }) => {
     return "Let's transform your resume into a powerful tool.";
   }, []);
 
-  // Enhanced tab change
+  // Simple tab change
   const handleTabChange = useCallback((tabName) => {
     const validTabs = ['roast', 'improvements', 'analysis'];
     if (validTabs.includes(tabName)) {
       setActiveTab(tabName);
-      setError('');
     }
   }, []);
 
-  // Enhanced print functionality
-  const handlePrint = useCallback(async () => {
-    setIsPrinting(true);
-    setError('');
-    addToast('Preparing your report...', 'info');
+  // Simple print
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
 
-    try {
-      if (!window.print) {
-        throw new Error('Print not supported in this browser');
-      }
-
-      const printStyles = document.createElement('style');
-      printStyles.textContent = `
-        @media print {
-          .results-actions { display: none !important; }
-          .results-tabs { display: none !important; }
-          .tab-content { display: block !important; }
-          .roast-content, .improvements-content, .analysis-content { 
-            display: block !important; 
-            page-break-inside: avoid;
-          }
-          .toast-container { display: none !important; }
-          .confirmation-dialog { display: none !important; }
-          body { print-color-adjust: exact; }
-          .results-container { box-shadow: none !important; }
-        }
-      `;
-      document.head.appendChild(printStyles);
-
-      await new Promise(resolve => setTimeout(resolve, 100));
-      window.print();
-
-      addToast('Report ready for download!', 'success');
-
-      setTimeout(() => {
-        if (document.head.contains(printStyles)) {
-          document.head.removeChild(printStyles);
-        }
-      }, 1000);
-
-    } catch (error) {
-      addToast('Unable to generate report. Please try again.', 'error');
-    } finally {
-      setIsPrinting(false);
-    }
-  }, [addToast]);
-
-  // Enhanced clipboard functionality
+  // Simple copy
   const copyToClipboard = useCallback(async (text) => {
     try {
       const sanitizedText = typeof text === 'string' ? text.substring(0, 1000) : '';
       
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(sanitizedText);
+        alert('Copied to clipboard!');
       } else {
         const textArea = document.createElement('textarea');
         textArea.value = sanitizedText;
@@ -182,36 +122,29 @@ const ResultsDisplay = ({ results, onReset }) => {
         textArea.select();
         document.execCommand('copy');
         document.body.removeChild(textArea);
+        alert('Copied to clipboard!');
       }
-      
-      addToast('Copied to clipboard!', 'success');
-      
     } catch (error) {
-      addToast('Copy failed. Please select and copy manually.', 'error');
+      alert('Copy failed. Please select and copy manually.');
     }
-  }, [addToast]);
+  }, []);
 
-  // Reset handlers
+  // Simple reset handlers
   const handleResetRequest = useCallback(() => {
     setShowResetConfirm(true);
   }, []);
 
   const handleResetConfirm = useCallback(() => {
     setShowResetConfirm(false);
-    addToast('Starting fresh analysis...', 'info');
     onReset();
-  }, [onReset, addToast]);
+  }, [onReset]);
 
   const handleResetCancel = useCallback(() => {
     setShowResetConfirm(false);
   }, []);
 
-  // Share functionality
+  // Simple share
   const handleShare = useCallback(async () => {
-    setIsSharing(true);
-    setError('');
-    addToast('Preparing share content...', 'info');
-
     try {
       const shareData = {
         title: 'CV Slayer Results',
@@ -219,56 +152,25 @@ const ResultsDisplay = ({ results, onReset }) => {
         url: window.location.origin
       };
 
-      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+      if (navigator.share) {
         await navigator.share(shareData);
-        addToast('Shared successfully!', 'success');
       } else {
         await copyToClipboard(shareData.text + ' ' + shareData.url);
-        addToast('Share link copied to clipboard!', 'success');
       }
-
     } catch (error) {
-      if (error.name === 'AbortError') {
-        addToast('Share cancelled', 'info', 2000);
-        return;
-      }
-      addToast('Share failed. Content copied to clipboard instead.', 'warning');
       await copyToClipboard(`My resume scored ${sanitizedScore}/100 on CV Slayer! ${window.location.origin}`);
-    } finally {
-      setIsSharing(false);
     }
-  }, [sanitizedScore, copyToClipboard, addToast]);
+  }, [sanitizedScore, copyToClipboard]);
 
-  // XSS Protection for text content
+  // Simple text sanitization
   const sanitizeText = useCallback((text) => {
     if (typeof text !== 'string') return [];
     return text
-      .replace(/[<>]/g, '')
       .substring(0, 2000)
       .split('\n')
       .filter(line => line.trim().length > 0)
       .slice(0, 50);
   }, []);
-
-  // Auto-clear error messages
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(''), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
-
-  // Keyboard event listener for escape key
-  useEffect(() => {
-    const handleEscapeKey = (event) => {
-      if (event.key === 'Escape' && showResetConfirm) {
-        handleResetCancel();
-      }
-    };
-
-    document.addEventListener('keydown', handleEscapeKey);
-    return () => document.removeEventListener('keydown', handleEscapeKey);
-  }, [showResetConfirm, handleResetCancel]);
 
   // Early validation
   if (!results) {
@@ -285,44 +187,14 @@ const ResultsDisplay = ({ results, onReset }) => {
     );
   }
 
-  // Destructure with safe defaults
-  const {
-    roastFeedback = '',
-  } = results;
+  // Simple destructure
+  const { roastFeedback = '' } = results;
 
   return (
-    <div className="results-container" role="main" aria-label="Resume analysis results">
-      {/* Toast Notification System */}
-      <div className="toast-container" aria-live="polite">
-        {toasts.map((toast) => (
-          <div 
-            key={toast.id}
-            className={`toast toast-${toast.type}`}
-            role="alert"
-          >
-            <div className="toast-content">
-              <span className="toast-icon">
-                {toast.type === 'success' && '✓'}
-                {toast.type === 'error' && '✕'}
-                {toast.type === 'warning' && '!'}
-                {toast.type === 'info' && 'i'}
-              </span>
-              <span className="toast-message">{toast.message}</span>
-            </div>
-            <button 
-              className="toast-close"
-              onClick={() => removeToast(toast.id)}
-              aria-label="Close notification"
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {/* Confirmation Dialog */}
+    <div className="results-container">
+      {/* Simple Confirmation Dialog */}
       {showResetConfirm && (
-        <div className="confirmation-overlay" role="dialog" aria-modal="true">
+        <div className="confirmation-overlay">
           <div className="confirmation-dialog">
             <div className="dialog-header">
               <h3>Start New Analysis?</h3>
@@ -335,7 +207,6 @@ const ResultsDisplay = ({ results, onReset }) => {
               <button 
                 className="dialog-button secondary"
                 onClick={handleResetCancel}
-                autoFocus
               >
                 Cancel
               </button>
@@ -360,7 +231,6 @@ const ResultsDisplay = ({ results, onReset }) => {
           <button 
             className="action-button secondary small" 
             onClick={handleResetRequest}
-            aria-label="Analyze another resume"
           >
             <span className="button-icon">🔄</span>
             New Analysis
@@ -374,8 +244,6 @@ const ResultsDisplay = ({ results, onReset }) => {
           <div 
             className="score-circle" 
             style={{ borderColor: getScoreColor(sanitizedScore) }}
-            role="img"
-            aria-label={`Resume score: ${sanitizedScore} out of 100`}
           >
             <span 
               className="score-number" 
@@ -411,12 +279,10 @@ const ResultsDisplay = ({ results, onReset }) => {
       </div>
 
       {/* Tab Navigation */}
-      <div className="results-tabs" role="tablist" aria-label="Result sections">
+      <div className="results-tabs">
         <button 
           className={`tab-button ${activeTab === 'roast' ? 'active' : ''}`}
           onClick={() => handleTabChange('roast')}
-          role="tab"
-          aria-selected={activeTab === 'roast'}
         >
           <span className="tab-icon">🔥</span>
           <span className="tab-text">Feedback</span>
@@ -424,8 +290,6 @@ const ResultsDisplay = ({ results, onReset }) => {
         <button 
           className={`tab-button ${activeTab === 'improvements' ? 'active' : ''}`}
           onClick={() => handleTabChange('improvements')}
-          role="tab"
-          aria-selected={activeTab === 'improvements'}
         >
           <span className="tab-icon">💡</span>
           <span className="tab-text">Improvements</span>
@@ -434,8 +298,6 @@ const ResultsDisplay = ({ results, onReset }) => {
         <button 
           className={`tab-button ${activeTab === 'analysis' ? 'active' : ''}`}
           onClick={() => handleTabChange('analysis')}
-          role="tab"
-          aria-selected={activeTab === 'analysis'}
         >
           <span className="tab-icon">📊</span>
           <span className="tab-text">Analysis</span>
@@ -445,7 +307,7 @@ const ResultsDisplay = ({ results, onReset }) => {
       {/* Tab Content */}
       <div className="tab-content">
         {activeTab === 'roast' && (
-          <div className="roast-content" role="tabpanel">
+          <div className="roast-content">
             <div className="content-section">
               <div className="section-header">
                 <h3>
@@ -458,8 +320,8 @@ const ResultsDisplay = ({ results, onReset }) => {
                 {sanitizeText(roastFeedback).length > 0 ? (
                   <div className="feedback-content">
                     {sanitizeText(decodeHtmlEntities(roastFeedback)).map((paragraph, index) => (
-  <p key={index} className="feedback-paragraph">{paragraph}</p>
-))}
+                      <p key={index} className="feedback-paragraph">{paragraph}</p>
+                    ))}
                   </div>
                 ) : (
                   <div className="no-content">
@@ -482,7 +344,7 @@ const ResultsDisplay = ({ results, onReset }) => {
         )}
 
         {activeTab === 'improvements' && (
-          <div className="improvements-content" role="tabpanel">
+          <div className="improvements-content">
             <div className="content-section">
               <div className="section-header">
                 <h3>
@@ -492,45 +354,45 @@ const ResultsDisplay = ({ results, onReset }) => {
                 <p>Actionable steps to enhance your resume</p>
               </div>
               <div className="improvements-list">
-  {validImprovements.length > 0 ? (
-    validImprovements.map((improvement, index) => (
-      <div key={index} className={`improvement-item priority-${improvement.priority}`}>
-        <div className="improvement-header">
-          <div className="improvement-priority">
-            <span className="priority-indicator">
-              {improvement.priority === 'high' && '🔴'}
-              {improvement.priority === 'medium' && '🟡'}
-              {improvement.priority === 'low' && '🟢'}
-            </span>
-            <span className="priority-text">
-              {improvement.priority.charAt(0).toUpperCase() + improvement.priority.slice(1)} Priority
-            </span>
-          </div>
-        </div>
-        <div className="improvement-content">
-          <h4 className="improvement-title">{decodeHtmlEntities(improvement.title)}</h4>
-          <p className="improvement-description">{decodeHtmlEntities(improvement.description)}</p>
-          {improvement.example && (
-            <div className="improvement-example">
-              <strong>Example:</strong> {decodeHtmlEntities(improvement.example)}
-            </div>
-          )}
-        </div>
-      </div>
-    ))
-  ) : (
-    <div className="no-content">
-      <span className="no-content-icon">✨</span>
-      <p>No specific improvements identified. Your resume looks good!</p>
-    </div>
-  )}
-</div>
+                {validImprovements.length > 0 ? (
+                  validImprovements.map((improvement, index) => (
+                    <div key={index} className={`improvement-item priority-${improvement.priority}`}>
+                      <div className="improvement-header">
+                        <div className="improvement-priority">
+                          <span className="priority-indicator">
+                            {improvement.priority === 'high' && '🔴'}
+                            {improvement.priority === 'medium' && '🟡'}
+                            {improvement.priority === 'low' && '🟢'}
+                          </span>
+                          <span className="priority-text">
+                            {improvement.priority.charAt(0).toUpperCase() + improvement.priority.slice(1)} Priority
+                          </span>
+                        </div>
+                      </div>
+                      <div className="improvement-content">
+                        <h4 className="improvement-title">{decodeHtmlEntities(improvement.title)}</h4>
+                        <p className="improvement-description">{decodeHtmlEntities(improvement.description)}</p>
+                        {improvement.example && (
+                          <div className="improvement-example">
+                            <strong>Example:</strong> {decodeHtmlEntities(improvement.example)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="no-content">
+                    <span className="no-content-icon">✨</span>
+                    <p>No specific improvements identified. Your resume looks good!</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'analysis' && (
-          <div className="analysis-content" role="tabpanel">
+          <div className="analysis-content">
             <div className="content-section">
               <div className="section-header">
                 <h3>
@@ -551,11 +413,11 @@ const ResultsDisplay = ({ results, onReset }) => {
                   {validStrengths.length > 0 ? (
                     <ul className="analysis-list strengths-list">
                       {validStrengths.map((strength, index) => (
-  <li key={index} className="analysis-item">
-    <span className="item-bullet">•</span>
-    <span className="item-text">{decodeHtmlEntities(strength)}</span>
-  </li>
-))}
+                        <li key={index} className="analysis-item">
+                          <span className="item-bullet">•</span>
+                          <span className="item-text">{decodeHtmlEntities(strength)}</span>
+                        </li>
+                      ))}
                     </ul>
                   ) : (
                     <div className="no-content small">
@@ -575,11 +437,11 @@ const ResultsDisplay = ({ results, onReset }) => {
                   {validWeaknesses.length > 0 ? (
                     <ul className="analysis-list weaknesses-list">
                       {validWeaknesses.map((weakness, index) => (
-  <li key={index} className="analysis-item">
-    <span className="item-bullet">•</span>
-    <span className="item-text">{decodeHtmlEntities(weakness)}</span>
-  </li>
-))}
+                        <li key={index} className="analysis-item">
+                          <span className="item-bullet">•</span>
+                          <span className="item-text">{decodeHtmlEntities(weakness)}</span>
+                        </li>
+                      ))}
                     </ul>
                   ) : (
                     <div className="no-content small">
@@ -596,27 +458,19 @@ const ResultsDisplay = ({ results, onReset }) => {
       {/* Action Buttons */}
       <div className="results-actions">
         <button 
-          className={`action-button primary ${isPrinting ? 'loading' : ''}`}
+          className="action-button primary"
           onClick={handlePrint}
-          disabled={isPrinting}
-          aria-label="Download report"
         >
           <span className="button-icon">📄</span>
-          <span className="button-text">
-            {isPrinting ? 'Preparing...' : 'Download Report'}
-          </span>
+          <span className="button-text">Download Report</span>
         </button>
         
         <button 
-          className={`action-button secondary ${isSharing ? 'loading' : ''}`}
+          className="action-button secondary"
           onClick={handleShare}
-          disabled={isSharing}
-          aria-label="Share results"
         >
           <span className="button-icon">📤</span>
-          <span className="button-text">
-            {isSharing ? 'Sharing...' : 'Share Results'}
-          </span>
+          <span className="button-text">Share Results</span>
         </button>
       </div>
     </div>
