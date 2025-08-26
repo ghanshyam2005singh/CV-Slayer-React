@@ -5,14 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "cross-env NODE_ENV=development nodemon server.js",
-    "production": "cross-env NODE_ENV=production node server.js",
+    "dev": "NODE_ENV=development nodemon server.js",
+    "production": "NODE_ENV=production node server.js",
     "build": "npm install --production",
     "test": "jest",
     "lint": "eslint .",
-    "security-check": "npm audit",
-    "health": "curl http://localhost:3000/health || echo 'Server not responding'",
-    "postinstall": "npm run build"
+    "security-check": "npm audit"
   },
   "engines": {
     "node": ">=16.0.0",
@@ -22,10 +20,7 @@
     "resume",
     "ai",
     "analysis",
-    "gemini",
-    "cv",
-    "career",
-    "api"
+    "gemini"
   ],
   "author": "Iron Industry",
   "license": "MIT",
@@ -35,7 +30,6 @@
     "bcryptjs": "^3.0.2",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
-    "cross-env": "^7.0.3",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.1",
@@ -59,13 +53,5 @@
     "eslint": "^8.45.0",
     "jest": "^29.6.2",
     "nodemon": "^3.0.2"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/yourusername/cv-slayer-backend.git"
-  },
-  "bugs": {
-    "url": "https://github.com/yourusername/cv-slayer-backend/issues"
-  },
-  "homepage": "https://github.com/yourusername/cv-slayer-backend#readme"
+  }
 }

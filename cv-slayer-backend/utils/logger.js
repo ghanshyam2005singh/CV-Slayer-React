@@ -5,36 +5,26 @@ const crypto = require('crypto');
 
 class Logger {
   constructor() {
-    // Production-safe configuration
-    this.isProduction = process.env.NODE_ENV === 'production';
-    
-    if (!this.isProduction) {
-      // Only create logs directory in development
-      this.logsDir = path.join(__dirname, '../logs');
-      this.initializeLogDirectory();
-    }
+    // Create logs directory if it doesn't exist
+    this.logsDir = path.join(__dirname, '../logs');
+    this.initializeLogDirectory();
     
     // Enhanced configuration
     this.maxFileSize = 10 * 1024 * 1024; // 10MB
     this.maxBackups = 5;
     this.logLevels = ['error', 'warn', 'info', 'debug'];
-    this.enableConsoleOutput = true; // Always enable console output
+    this.enableConsoleOutput = process.env.NODE_ENV !== 'production';
     
     // Performance optimization
     this.writeQueue = [];
     this.isWriting = false;
     this.flushInterval = 1000; // 1 second
     
-    // Start flush timer only in development
-    if (!this.isProduction) {
-      this.startFlushTimer();
-    }
+    // Start flush timer
+    this.startFlushTimer();
   }
 
   initializeLogDirectory() {
-    // Only run in development
-    if (this.isProduction) return;
-    
     try {
       if (!fsSync.existsSync(this.logsDir)) {
         fsSync.mkdirSync(this.logsDir, { recursive: true });
@@ -98,22 +88,20 @@ class Logger {
     return sanitized;
   }
 
-  // Fixed: Single writeToFile method with proper production handling
   async writeToFile(level, message, meta = {}) {
-    // Always log to console
-    this.logToConsole(level, message, meta);
+    const logEntry = {
+      level,
+      message,
+      meta,
+      timestamp: Date.now()
+    };
     
-    // Only write to file in development
-    if (!this.isProduction) {
-      const logEntry = {
-        level,
-        message,
-        meta,
-        timestamp: Date.now()
-      };
-      
-      // Add to write queue for batch processing
-      this.writeQueue.push(logEntry);
+    // Add to write queue for batch processing
+    this.writeQueue.push(logEntry);
+    
+    // Console output in development
+    if (this.enableConsoleOutput) {
+      this.logToConsole(level, message, meta);
     }
   }
 
@@ -142,10 +130,8 @@ class Logger {
     }, this.flushInterval);
   }
 
-  // Fixed: Single flushLogs method with proper production checks
   async flushLogs() {
-    // Skip file operations in production
-    if (this.isProduction || this.isWriting || this.writeQueue.length === 0) {
+    if (this.isWriting || this.writeQueue.length === 0) {
       return;
     }
     
@@ -161,7 +147,7 @@ class Logger {
         return acc;
       }, {});
       
-      // Write to files (development only)
+      // Write to files
       for (const [level, logs] of Object.entries(logsByLevel)) {
         const logFile = path.join(this.logsDir, `${level}.log`);
         const logContent = logs
@@ -281,13 +267,7 @@ class Logger {
     this.error('Application Error', errorData);
   }
 
-  // Fixed: getRecentLogs with proper production handling
   async getRecentLogs(options = {}) {
-    // In production, return empty array since no file logs
-    if (this.isProduction) {
-      return [];
-    }
-
     const {
       level = 'all',
       limit = 100,
@@ -337,24 +317,7 @@ class Logger {
     }
   }
 
-  // Fixed: getLogStats with proper production handling
   async getLogStats(timeRange = '24h') {
-    // In production, return basic stats since no file logs
-    if (this.isProduction) {
-      return {
-        total: 0,
-        timeRange,
-        errors: 0,
-        warnings: 0,
-        info: 0,
-        debug: 0,
-        errorRate: 0,
-        hourlyVolume: [],
-        lastError: null,
-        note: 'File logging disabled in production - using console logs only'
-      };
-    }
-
     try {
       const now = new Date();
       const startDate = new Date();
@@ -407,14 +370,12 @@ class Logger {
     } catch (error) {
       return {
         total: 0,
-        timeRange,
         errors: 0,
         warnings: 0,
         info: 0,
         debug: 0,
         errorRate: 0,
-        hourlyVolume: [],
-        lastError: null
+        hourlyVolume: []
       };
     }
   }
@@ -433,25 +394,10 @@ class Logger {
       .slice(-24); // Last 24 hours
   }
 
-  // Health check method
-  getHealthStatus() {
-    return {
-      status: 'healthy',
-      environment: process.env.NODE_ENV || 'development',
-      loggingMode: this.isProduction ? 'console-only' : 'console-and-file',
-      queueSize: this.writeQueue.length,
-      isWriting: this.isWriting,
-      enableConsoleOutput: this.enableConsoleOutput,
-      timestamp: new Date().toISOString()
-    };
-  }
-
   // Graceful shutdown - flush remaining logs
   async shutdown() {
     this.info('Logger shutting down');
-    if (!this.isProduction) {
-      await this.flushLogs();
-    }
+    await this.flushLogs();
   }
 }
 
